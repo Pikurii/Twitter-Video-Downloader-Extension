@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>X-Vault Control Hub · Pikuri Media Collector</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Silkscreen:wght@400;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body class="vault-dashboard-body">
+  <div class="dashboard-layout">
+
+    <!-- ==================== SIDEBAR NAVIGATION ==================== -->
+    <aside class="dashboard-sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-badge-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+        </div>
+        <div class="brand-text-block">
+          <h1 class="brand-title">X-VAULT</h1>
+          <span class="brand-subtitle">CONTROL HUB</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-tab-btn active" data-tab="general" id="tabBtnGeneral">
+          <span class="nav-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+          </span>
+          <span class="nav-label" data-i18n="navGeneral">General</span>
+        </button>
+        <button class="nav-tab-btn" data-tab="features" id="tabBtnFeatures">
+          <span class="nav-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="4" y1="21" x2="4" y2="14"/>
+              <line x1="4" y1="10" x2="4" y2="3"/>
+              <line x1="12" y1="21" x2="12" y2="12"/>
+              <line x1="12" y1="8" x2="12" y2="3"/>
+              <line x1="20" y1="21" x2="20" y2="16"/>
+              <line x1="20" y1="12" x2="20" y2="3"/>
+              <line x1="1" y1="14" x2="7" y2="14"/>
+              <line x1="9" y1="8" x2="15" y2="8"/>
+              <line x1="17" y1="16" x2="23" y2="16"/>
+            </svg>
+          </span>
+          <span class="nav-label" data-i18n="navFeatures">Features</span>
+        </button>
+        <button class="nav-tab-btn" data-tab="history" id="tabBtnHistory">
+          <span class="nav-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </span>
+          <span class="nav-label" data-i18n="navHistory">History</span>
+          <span class="nav-badge" id="historyCounterBadge">0</span>
+        </button>
+        <button class="nav-tab-btn" data-tab="about" id="tabBtnAbout">
+          <span class="nav-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="8" r="7"/>
+              <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
+            </svg>
+          </span>
+          <span class="nav-label" data-i18n="navAbout">About & Rank</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-status-card">
+          <div class="status-indicator-dot"></div>
+          <div class="status-info">
+            <span class="status-title">Core Engine</span>
+            <span class="status-val">v2.2.0 • Active</span>
+          </div>
+        </div>
+        <div class="sidebar-credit">
+          <a href="https://x.com" target="_blank" class="sidebar-x-link" data-i18n="openTwitter">Buka x.com ↗</a>
+          <span>by <a href="https://github.com/Pikurii" target="_blank" class="author-link">Pikuri</a></span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==================== MAIN CONTENT AREA ==================== -->
+    <main class="dashboard-main">
+
+      <!-- ==================== TAB 1: GENERAL ==================== -->
+      <section class="tab-pane active" id="pane-general">
+        <div class="pane-header">
+          <div class="pane-title-group">
+            <span class="pane-category-tag">SETTINGS</span>
+            <h2 class="pane-main-title" data-i18n="navGeneral">General</h2>
+          </div>
+          <span class="pane-subtitle-desc" data-i18n="generalDesc">Pengaturan penyimpanan berkas, sub-folder, dan format nama berkas otomatis.</span>
+        </div>
+
+        <div class="settings-card-stack">
+
+          <!-- Ask where to save files -->
+          <div class="setting-item-card">
+            <div class="item-text-info">
+              <h3 class="item-title" data-i18n="askSaveTitle">Tanya lokasi penyimpanan berkas</h3>
+              <p class="item-desc" data-i18n="askSaveDesc">Tampilkan jendela pemilih folder sebelum unduhan dimulai. Nonaktifkan jika ingin unduhan berjalan instan satu-klik.</p>
+            </div>
+            <label class="vault-switch">
+              <input type="checkbox" id="toggleAskSave">
+              <span class="vault-slider"></span>
+            </label>
+          </div>
+
+          <!-- Create Sub-directory -->
+          <div class="setting-item-card col-layout">
+            <div class="item-header-row">
+              <div class="item-text-info">
+                <h3 class="item-title" data-i18n="subDirTitle">Buat sub-direktori khusus</h3>
+                <p class="item-desc" data-i18n="subDirDesc">Simpan berkas unduhan ke dalam sub-folder khusus di dalam folder default Downloads browser.</p>
+              </div>
+              <label class="vault-switch">
+                <input type="checkbox" id="toggleCreateSubDir" checked>
+                <span class="vault-slider"></span>
+              </label>
+            </div>
+
+            <div class="sub-input-row" id="subDirInputRow">
+              <span class="sub-input-prefix">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -1px; margin-right: 4px;"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>Downloads /
+              </span>
+              <input type="text" id="inputSubDirName" class="dashboard-input" value="X_Vault_Downloads" placeholder="Nama folder..." data-i18n-placeholder="subDirPlaceholder" spellcheck="false">
+              <button id="btnSaveSubDir" class="btn-save-sm" data-i18n="btnSave">SIMPAN</button>
+            </div>
+          </div>
+
+          <!-- Group downloads by account -->
+          <div class="setting-item-card">
+            <div class="item-text-info">
+              <h3 class="item-title" data-i18n="groupByAccountTitle">Kelompokkan unduhan berdasarkan akun</h3>
+              <p class="item-desc" data-i18n="groupByAccountDesc">Otomatis pisahkan berkas ke dalam sub-folder tersendiri untuk setiap akun Twitter (@username).</p>
+            </div>
+            <label class="vault-switch">
+              <input type="checkbox" id="toggleGroupByAccount">
+              <span class="vault-slider"></span>
+            </label>
+          </div>
+
+          <!-- Interactive Filename Pattern Builder -->
+          <div class="setting-item-card col-layout">
+            <div class="item-header-row">
+              <div class="item-text-info">
+                <h3 class="item-title" data-i18n="patternTitle">Penyusun Pola Nama Berkas (Filename Pattern)</h3>
+                <p class="item-desc" data-i18n="patternDesc">Klik tag di bawah untuk menyalakan atau mematikan. Gunakan tombol panah ◀ ▶ untuk mengatur urutan. Pratinjau langsung diperbarui.</p>
+              </div>
+              <button id="btnResetPattern" class="btn-reset-link" data-i18n="btnResetDefault">RESET KE DEFAULT</button>
+            </div>
+
+            <!-- Live Preview Display Box -->
+            <div class="filename-preview-box">
+              <span class="preview-label">LIVE PREVIEW:</span>
+              <span id="filenamePreviewText" class="preview-code">@username - 184920481920_Photo01.jpg</span>
+            </div>
+
+            <!-- Active Tags Row (Orderable / Removable) -->
+            <div class="active-tags-section">
+              <span class="tags-group-label" data-i18n="activeTagsLabel">Pola Tag Aktif (Urutan Berkas):</span>
+              <div id="activeTagsList" class="tags-container active-tags-container">
+                <!-- Dynamically populated tags with ◀ ▶ and × button -->
+              </div>
+            </div>
+
+            <!-- Available Tags Palette -->
+            <div class="palette-tags-section">
+              <span class="tags-group-label" data-i18n="availableTagsLabel">Pilihan Tag (Klik untuk Menyalakan / Mematikan):</span>
+              <div id="paletteTagsList" class="tags-container palette-tags-container">
+                <!-- Dynamically populated tags with active/inactive toggle state -->
+              </div>
+            </div>
+
+            <!-- Validation Warning Box -->
+            <div id="patternWarningBox" class="pattern-warning-box" style="display: none;">
+              <span class="warning-icon">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -1px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              </span>
+              <span id="patternWarningText" class="warning-text">Pola harus menyertakan minimal satu penanda unik (Tweet ID, Serial, atau Timestamp) agar berkas tidak saling menimpa.</span>
+            </div>
+          </div>
+
+          <!-- Interface Theme (Light / Dark) -->
+          <div class="setting-item-card">
+            <div class="item-text-info">
+              <h3 class="item-title" data-i18n="themeTitle">Tema Tampilan</h3>
+              <p class="item-desc" data-i18n="themeDesc">Pilih mode tampilan antarmuka antara tema gelap (Cyber Dark) yang nyaman di mata atau tema terang (Clean Light).</p>
+            </div>
+            <div class="choice-pills-row" id="themeChoices">
+              <button type="button" class="choice-pill active" data-value="dark" data-i18n="themeDark">Gelap (Dark)</button>
+              <button type="button" class="choice-pill" data-value="light" data-i18n="themeLight">Terang (Light)</button>
+            </div>
+          </div>
+
+          <!-- Language Selector -->
+          <div class="setting-item-card">
+            <div class="item-text-info">
+              <h3 class="item-title" data-i18n="langTitle">Bahasa Antarmuka</h3>
+              <p class="item-desc" data-i18n="langDesc">Pilih bahasa tampilan untuk ekstensi, popup, tombol di linimasa, dan notifikasi.</p>
+            </div>
+            <select id="selectLanguage" class="dashboard-select">
+              <option value="id">🇮🇩 Bahasa Indonesia</option>
+              <option value="en">🇺🇸 English</option>
+            </select>
+          </div>
+
+          <!-- Reset General -->
+          <div class="card-footer-actions">
+            <button id="btnResetGeneral" class="btn-danger-outline" data-i18n="btnResetGeneral">Reset Pengaturan Umum ke Default</button>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ==================== TAB 2: FEATURES ==================== -->
+      <section class="tab-pane" id="pane-features">
+        <div class="pane-header">
+          <div class="pane-title-group">
+            <span class="pane-category-tag">SETTINGS</span>
+            <h2 class="pane-main-title" data-i18n="navFeatures">Features</h2>
+          </div>
+          <span class="pane-subtitle-desc" data-i18n="featuresDesc">Sesuaikan perilaku pengunduhan, filter sensitif, kualitas media, dan tombol linimasa.</span>
+        </div>
+
+        <div class="settings-card-stack">
+
+          <!-- Auto-reveal sensitive content (NSFW) -->
+          <div class="setting-item-card">
+            <div class="item-text-info">
+              <h3 class="item-title" data-i18n="nsfwTitle">Auto-reveal sensitive content (NSFW Auto-Unblur)</h3>
+              <p class="item-desc" data-i18n="nsfwDesc">Otomatis menampilkan dan membuka postingan yang bertanda sensitif tanpa perlu mengklik tombol peringatan secara manual.</p>
+            </div>
+            <label class="vault-switch">
+              <input type="checkbox" id="toggleFeaturesNsfw" checked>
+              <span class="vault-slider"></span>
+            </label>
+          </div>
+
+          <!-- Download Video Thumbnail -->
+          <div class="setting-item-card">
+            <div class="item-text-info">
+              <h3 class="item-title" data-i18n="thumbnailTitle">Download video thumbnail</h3>
+              <p class="item-desc" data-i18n="thumbnailDesc">Unduh juga gambar cover poster thumbnail (.jpg) saat mengunduh video dari tweet.</p>
+            </div>
+            <label class="vault-switch">
+              <input type="checkbox" id="toggleDownloadThumbnail">
+              <span class="vault-slider"></span>
+            </label>
+          </div>
+
+          <!-- Animated GIF Format -->
+          <div class="setting-item-card col-layout">
+            <div class="item-text-info">
+              <h3 class="item-title" data-i18n="gifTitle">Format Animasi GIF (Animated GIF format)</h3>
+              <p class="item-desc" data-i18n="gifDesc">Pilih bagaimana animasi GIF Twitter disimpan. Format .gif berukuran lebih besar dari .mp4 dan terbatas 256 warna. Pilih 'Tanya Setiap Unduh' untuk menampilkan pemilih format di linimasa setiap kali mengunduh.</p>
+            </div>
+            <div class="choice-pills-row" id="gifFormatChoices">
+              <button class="choice-pill active" data-value="ask" data-i18n="gifAsk">Tanya Setiap Unduh</button>
+              <button class="choice-pill" data-value="mp4" data-i18n="gifMp4">Native MP4</button>
+              <button class="choice-pill" data-value="gif-small" data-i18n="gifSmall">GIF · Small</button>
+              <button class="choice-pill" data-value="gif-medium" data-i18n="gifMedium">GIF · Medium</button>
+              <button class="choice-pill" data-value="gif-original" data-i18n="gifOriginal">GIF · Original</button>
+            </div>
+          </div>
+
+          <!-- Default Video Master Quality -->
+          <div class="setting-item-card col-layout">
+            <div class="item-text-info">
+              <h3 class="item-title" data-i18n="qualityTitle">Kualitas Default Video</h3>
+              <p class="item-desc" data-i18n="qualityDesc">Pilih resolusi video yang diutamakan saat mengunduh video melalui tombol satu-klik. Pilih 'Tanya Setiap Unduh' untuk menampilkan pemilih resolusi di linimasa setiap kali mengunduh.</p>
+            </div>
+            <div class="choice-pills-row" id="videoQualityChoices">
+              <button class="choice-pill active" data-value="ask" data-i18n="qualityAsk">Tanya Setiap Unduh</button>
+              <button class="choice-pill" data-value="native" data-i18n="qualityNative">Native (Kualitas Asli)</button>
+              <button class="choice-pill" data-value="1080p" data-i18n="quality1080p">1080p (Full HD)</button>
+              <button class="choice-pill" data-value="720p" data-i18n="quality720p">720p (HD)</button>
+              <button class="choice-pill" data-value="480p" data-i18n="quality480p">480p (Hemat Data)</button>
+            </div>
+            <select id="selectDefaultQuality" class="dashboard-select" style="display: none;">
+              <option value="ask" data-i18n="qualityAsk">Tanya Setiap Unduh</option>
+              <option value="native" data-i18n="qualityNative">Native (Kualitas Asli)</option>
+              <option value="1080p" data-i18n="quality1080p">1080p (Full HD)</option>
+              <option value="720p" data-i18n="quality720p">720p (HD)</option>
+              <option value="480p" data-i18n="quality480p">480p (Hemat Data)</option>
+            </select>
+          </div>
+
+          <!-- Bottom-Right Tweet Download Button -->
+          <div class="setting-item-card">
+            <div class="item-text-info">
+              <h3 class="item-title" data-i18n="inTweetTitle">Tombol Unduh di Kanan Bawah Postingan</h3>
+              <p class="item-desc" data-i18n="inTweetDesc">Tampilkan tombol logo unduh di bilah aksi kanan bawah setiap postingan tweet (di samping tombol like, retweet, dan bookmark).</p>
+            </div>
+            <label class="vault-switch">
+              <input type="checkbox" id="toggleInTweetBtn" checked>
+              <span class="vault-slider"></span>
+            </label>
+          </div>
+
+          <!-- Media Corner Badges -->
+          <div class="setting-item-card">
+            <div class="item-text-info">
+              <h3 class="item-title" data-i18n="mediaBadgesTitle">Lencana Unduh di Sudut Media (Corner Badge)</h3>
+              <p class="item-desc" data-i18n="mediaBadgesDesc">Sematkan lencana tombol unduh HD / MP4 / GIF langsung di sudut kanan atas video dan foto tweet.</p>
+            </div>
+            <label class="vault-switch">
+              <input type="checkbox" id="toggleMediaBadges" checked>
+              <span class="vault-slider"></span>
+            </label>
+          </div>
+
+          <!-- Tweet Header Download All Button (Next to Grok / Caret) -->
+          <div class="setting-item-card">
+            <div class="item-text-info">
+              <h3 class="item-title" data-i18n="headerDlAllTitle">Tombol Unduh Semua di Header Tweet</h3>
+              <p class="item-desc" data-i18n="headerDlAllDesc">Tampilkan tombol 'Unduh Semua' di sudut kanan atas postingan (di samping ikon Grok) jika tweet memiliki banyak media.</p>
+            </div>
+            <label class="vault-switch">
+              <input type="checkbox" id="toggleHeaderDlAll" checked>
+              <span class="vault-slider"></span>
+            </label>
+          </div>
+
+          <!-- Keyboard Shortcut -->
+          <div class="setting-item-card">
+            <div class="item-text-info">
+              <h3 class="item-title" data-i18n="shortcutTitle">Pintasan Papan Ketik (Keyboard shortcut)</h3>
+              <p class="item-desc" data-i18n="shortcutDesc">Tekan huruf <code>D</code> pada keyboard saat kursor berada di tweet untuk langsung memulai unduhan media.</p>
+            </div>
+            <label class="vault-switch">
+              <input type="checkbox" id="toggleKeyboardShortcut">
+              <span class="vault-slider"></span>
+            </label>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ==================== TAB 3: HISTORY ==================== -->
+      <section class="tab-pane" id="pane-history">
+        <div class="pane-header">
+          <div class="pane-title-group">
+            <span class="pane-category-tag">ARCHIVE</span>
+            <h2 class="pane-main-title" data-i18n="recentDownloadsTitle">Recent Downloads</h2>
+          </div>
+
+          <!-- Top Stats Bar -->
+          <div class="history-metrics-bar">
+            <div class="metric-box">
+              <span class="metric-label" data-i18n="totalDropsStat">TOTAL DROPS</span>
+              <span id="metricTotalDrops" class="metric-num">000</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label" data-i18n="videosStat">VIDEOS</span>
+              <span id="metricVideos" class="metric-num">000</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label" data-i18n="photosStat">PHOTOS</span>
+              <span id="metricPhotos" class="metric-num">000</span>
+            </div>
+            <div class="metric-box">
+              <span class="metric-label" data-i18n="gifsStat">GIFS</span>
+              <span id="metricGifs" class="metric-num">000</span>
+            </div>
+            <div class="metric-box toggle-box">
+              <span class="metric-label" data-i18n="loggingStat">LOGGING</span>
+              <label class="vault-switch mini">
+                <input type="checkbox" id="toggleHistoryLogging" checked>
+                <span class="vault-slider"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- History Search & Filter Toolbar -->
+        <div class="history-toolbar">
+          <div class="search-input-wrap">
+            <span class="search-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+            </span>
+            <input type="text" id="inputHistorySearch" class="history-search-field" placeholder="Cari berdasarkan nama akun atau isi tweet..." data-i18n-placeholder="searchPlaceholder" spellcheck="false">
+          </div>
+
+          <div class="history-filter-pills" id="historyTypeFilters">
+            <button class="filter-pill active" data-filter="all" data-i18n="filterAll">SEMUA</button>
+            <button class="filter-pill" data-filter="video" data-i18n="filterVideo">MP4</button>
+            <button class="filter-pill" data-filter="image" data-i18n="filterImage">JPG</button>
+            <button class="filter-pill" data-filter="gif" data-i18n="filterGif">GIF</button>
+          </div>
+
+          <div class="history-actions-row">
+            <button id="btnClearAllHistory" class="btn-tool-danger" title="Hapus riwayat unduhan" data-i18n="btnClearAll" data-i18n-title="btnClearAllTitle">Clear All</button>
+            <button id="btnExportHistory" class="btn-tool-secondary" title="Ekspor riwayat ke JSON" data-i18n="btnExport" data-i18n-title="btnExportTitle">Export</button>
+            <button id="btnImportHistory" class="btn-tool-secondary" title="Impor riwayat dari file JSON" data-i18n="btnImport" data-i18n-title="btnImportTitle">Import</button>
+            <input type="file" id="inputImportHistory" accept=".json,application/json" style="display: none;">
+          </div>
+        </div>
+
+        <!-- History Items Grid / Table -->
+        <div class="history-results-wrapper">
+          <div id="historyTableContainer" class="history-table-container custom-scrollbar">
+            <!-- Dynamic history rows populated by JS -->
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== TAB 4: ABOUT ==================== -->
+      <section class="tab-pane" id="pane-about">
+        <div class="pane-header">
+          <div class="pane-title-group">
+            <span class="pane-category-tag">SYSTEM</span>
+            <h2 class="pane-main-title" data-i18n="navAbout">About & Rank</h2>
+          </div>
+          <span class="pane-subtitle-desc" data-i18n="aboutDesc">Profil kolektor Anda, penghargaan level, serta integritas ekstensi.</span>
+        </div>
+
+        <div class="about-grid">
+
+          <!-- Gamified Rank Card -->
+          <div class="about-card rank-showcase-card">
+            <div class="rank-card-header">
+              <div class="rank-badge-trophy">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color: #f59e0b;">
+                  <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/>
+                  <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/>
+                  <path d="M4 22h16"/>
+                  <path d="M10 14.66V17c0 .55-.45 1-1 1H8c-.55 0-1 .45-1 1v1h10v-1c0-.55-.45-1-1-1h-1c-.55 0-1-.45-1-1v-2.34"/>
+                  <path d="M6 4h12v5a6 6 0 0 1-12 0V4z"/>
+                </svg>
+              </div>
+              <div class="rank-title-wrap">
+                <span id="aboutRankTitle" class="about-rank-title">LVL 1 · ROOKIE</span>
+                <span id="aboutRankGoal" class="about-rank-goal">Next Goal: 10 Drops</span>
+              </div>
+            </div>
+
+            <div class="about-counter-split">
+              <div class="about-counter-num-box">
+                <span class="about-counter-label" data-i18n="aboutCounterLabel">TOTAL MEDIA COLLECTED</span>
+                <span id="aboutTotalCounter" class="about-counter-val">00</span>
+              </div>
+            </div>
+
+            <div class="about-energy-wrap">
+              <div class="energy-bar-meta">
+                <span data-i18n="aboutProgressLabel">LEVEL PROGRESS</span>
+                <span id="aboutProgressPct">0%</span>
+              </div>
+              <div class="energy-segments-row" id="aboutEnergySegments">
+                <div class="energy-block"></div>
+                <div class="energy-block"></div>
+                <div class="energy-block"></div>
+                <div class="energy-block"></div>
+                <div class="energy-block"></div>
+                <div class="energy-block"></div>
+                <div class="energy-block"></div>
+                <div class="energy-block"></div>
+                <div class="energy-block"></div>
+                <div class="energy-block"></div>
+              </div>
+            </div>
+
+            <button id="btnResetGamification" class="btn-danger-outline" style="margin-top: 14px;" data-i18n="btnResetRank">Reset Statistik & Level ke 0</button>
+          </div>
+
+          <!-- System & Security Info Card -->
+          <div class="about-card info-card">
+            <h3 class="about-info-title" data-i18n="aboutInfoTitle">X-Vault: Media Downloader</h3>
+            <p class="about-info-text" data-i18n="aboutInfoText">Ekstensi pengunduh media berkinerja tinggi yang dirancang untuk mengunduh video resolusi penuh, foto definisi tinggi (orig), dan animasi dari linimasa X / Twitter tanpa batasan.</p>
+
+            <div class="info-meta-list">
+              <div class="info-meta-item">
+                <span class="meta-label" data-i18n="metaVersion">Versi:</span>
+                <span class="meta-val">2.2.0 (Neo-Vault Edition)</span>
+              </div>
+              <div class="info-meta-item">
+                <span class="meta-label" data-i18n="metaDev">Pengembang:</span>
+                <span class="meta-val"><a href="https://github.com/Pikurii" target="_blank" class="author-link">Pikuri</a></span>
+              </div>
+              <div class="info-meta-item">
+                <span class="meta-label" data-i18n="metaArch">Arsitektur:</span>
+                <span class="meta-val">Manifest V3 · Local Service Worker</span>
+              </div>
+              <div class="info-meta-item">
+                <span class="meta-label" data-i18n="metaPrivacy">Privasi:</span>
+                <span class="meta-val" id="metaPrivacyVal" data-i18n="metaPrivacyVal" style="color: #16a34a;">100% Client-Side (Tanpa Pelacak)</span>
+              </div>
+            </div>
+
+            <div class="privacy-callout">
+              <p data-i18n="privacyCalloutText">Ekstensi ini berjalan sepenuhnya secara lokal di peramban Anda. Tidak ada data unduhan, riwayat penjelajahan, maupun informasi akun yang dikirimkan ke server eksternal manapun.</p>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Floating Global Toast -->
+    <div id="dashboardToast" class="dashboard-toast hidden">
+      <span class="toast-spark">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      </span>
+      <span id="dashboardToastText" class="toast-text">Pengaturan berhasil disimpan!</span>
+    </div>
+
+  </div>
+
+  <script src="settings.js"></script>
+</body>
+</html>

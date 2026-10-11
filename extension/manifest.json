@@ -1,0 +1,92 @@
+{
+  "manifest_version": 3,
+  "name": "X Video Downloader",
+  "version": "2.0.0",
+  "description": "Unduh video, gambar / foto HD, animasi GIF, dan ekstrak audio MP3 dari Twitter / X secara instan dan bebas iklan. Dilengkapi filter NSFW dan pelacak unduhan. Dibuat oleh Pikuri.",
+  "author": "Pikuri (https://github.com/Pikurii)",
+  "homepage_url": "https://github.com/Pikurii",
+  "minimum_chrome_version": "102",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "x-vault-downloader@pikuri.dev",
+      "strict_min_version": "109.0"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "X Video Downloader"
+  },
+  "options_page": "settings.html",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://x.com/*",
+        "*://*.x.com/*",
+        "*://twitter.com/*",
+        "*://*.twitter.com/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    },
+    {
+      "matches": [
+        "*://x.com/*",
+        "*://*.x.com/*",
+        "*://twitter.com/*",
+        "*://*.twitter.com/*"
+      ],
+      "js": ["twitter_interceptor.js"],
+      "world": "MAIN",
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "permissions": [
+    "storage",
+    "downloads",
+    "activeTab",
+    "tabs",
+    "notifications",
+    "webRequest",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "*://twitter.com/*",
+    "*://*.twitter.com/*",
+    "*://x.com/*",
+    "*://*.x.com/*",
+    "*://*.twimg.com/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icons/*.png",
+        "test_page.html",
+        "twitter_interceptor.js",
+        "settings.html"
+      ],
+      "matches": [
+        "*://twitter.com/*",
+        "*://*.twitter.com/*",
+        "*://x.com/*",
+        "*://*.x.com/*"
+      ]
+    }
+  ]
+}

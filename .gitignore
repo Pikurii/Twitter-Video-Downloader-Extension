@@ -1,0 +1,34 @@
+# OS Generated Files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# Editor & IDE Files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo
+
+# Temporary & Log Files
+*.log
+*.tmp
+*.bak
+*.orig
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build and Packaging artifacts (optional, keeping release zip tracked)
+# Video-Downloader-Extension.zip is kept for offline distribution

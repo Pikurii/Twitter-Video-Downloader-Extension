@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>X Vault - Media Collector</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Silkscreen:wght@400;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body class="vault-theme">
+  <div class="vault-app">
+
+    <!-- Top Navigation Header -->
+    <header class="vault-header">
+      <div class="vault-brand">
+        <div class="vault-brand-badge" id="btnEasterEgg" title="Klik untuk mini-game chime!">
+          <span class="vault-brand-icon">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+          </span>
+        </div>
+        <div class="vault-brand-titles">
+          <span class="vault-title">X-VAULT</span>
+          <span class="vault-subtitle">PIKURI COLLECTOR</span>
+        </div>
+      </div>
+
+      <div class="vault-header-actions">
+        <div class="vault-status-pill" id="tabStatusPill">
+          <span class="status-pulse"></span>
+          <span id="tabStatusText">READY</span>
+        </div>
+        <button id="btnQuickThemeToggle" class="vault-icon-btn" title="Ganti Tema Gelap / Terang">
+          <span id="themeToggleIcon" style="display:inline-flex;align-items:center;justify-content:center;"></span>
+        </button>
+        <button id="btnOpenSettings" class="vault-icon-btn" title="Buka Dashboard Pengaturan di Tab Baru">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83-2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="vault-main-scroll custom-scrollbar">
+
+      <!-- ==================== PLAYER COLLECTOR CARD ==================== -->
+      <section class="vault-card player-badge-card" id="counterCard" title="Klik kartu untuk combo +XP!">
+        <div class="card-top-row">
+          <div class="rank-tag">
+            <span class="rank-trophy">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #f59e0b;">
+                <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/>
+                <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/>
+                <path d="M4 22h16"/>
+                <path d="M10 14.66V17c0 .55-.45 1-1 1H8c-.55 0-1 .45-1 1v1h10v-1c0-.55-.45-1-1-1h-1c-.55 0-1-.45-1-1v-2.34"/>
+                <path d="M6 4h12v5a6 6 0 0 1-12 0V4z"/>
+              </svg>
+            </span>
+            <span id="rankTitleText" class="rank-title">LVL 1 · ROOKIE</span>
+          </div>
+          <span id="nextGoalText" class="rank-next-goal">GOAL: 10 DROPS</span>
+        </div>
+
+        <div class="player-stats-split">
+          <!-- Left: Big Counter with Floating XP Particles -->
+          <div class="total-drops-box">
+            <span class="drops-label" data-i18n="totalDropsLabel">TOTAL DROPS</span>
+            <div class="drops-num-wrap">
+              <span id="totalDropsNum" class="drops-huge-num">00</span>
+              <span class="drops-unit">ITEMS</span>
+            </div>
+            <div id="particleCanvas" class="particle-overlay"></div>
+          </div>
+
+          <!-- Right: Breakdown Grid (Videos vs Photos) -->
+          <div class="stats-mini-grid">
+            <div class="mini-stat-cell">
+              <span class="mini-stat-icon">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+              </span>
+              <div class="mini-stat-info">
+                <span id="videoCountNum" class="mini-stat-num">0</span>
+                <span class="mini-stat-name" data-i18n="videoCountLabel">Videos</span>
+              </div>
+            </div>
+            <div class="mini-stat-cell">
+              <span class="mini-stat-icon">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2"/>
+                  <circle cx="8.5" cy="8.5" r="1.5"/>
+                  <polyline points="21 15 16 10 5 21"/>
+                </svg>
+              </span>
+              <div class="mini-stat-info">
+                <span id="imageCountNum" class="mini-stat-num">0</span>
+                <span class="mini-stat-name" data-i18n="imageCountLabel">Photos</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cyber Energy / Progress Bar -->
+        <div class="energy-bar-wrap">
+          <div class="energy-bar-meta">
+            <span class="energy-label" data-i18n="levelProgress">LEVEL EXP</span>
+            <span id="energyProgressText" class="energy-percent">0%</span>
+          </div>
+          <div class="energy-segments-row" id="energySegmentsRow">
+            <div class="energy-block"></div>
+            <div class="energy-block"></div>
+            <div class="energy-block"></div>
+            <div class="energy-block"></div>
+            <div class="energy-block"></div>
+            <div class="energy-block"></div>
+            <div class="energy-block"></div>
+            <div class="energy-block"></div>
+            <div class="energy-block"></div>
+            <div class="energy-block"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== NSFW SHIELD TOOL CARD ==================== -->
+      <section class="vault-card tool-shield-card">
+        <div class="tool-shield-header">
+          <div class="tool-icon-shield">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+          <div class="tool-text-wrap">
+            <span class="tool-title" data-i18n="nsfwShieldTitle">NSFW Auto-Unblur</span>
+            <span class="tool-desc" data-i18n="nsfwShieldDesc">Buka konten sensitif otomatis di linimasa</span>
+          </div>
+          <label class="vault-switch" title="Toggle Auto-Reveal NSFW Media">
+            <input type="checkbox" id="toggleNsfw">
+            <span class="vault-slider"></span>
+          </label>
+        </div>
+      </section>
+
+      <!-- ==================== QUICK LINK DROP INPUT ==================== -->
+      <section class="vault-card quick-drop-card">
+        <div class="quick-drop-input-box">
+          <span class="quick-input-icon">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+          </span>
+          <input type="text" id="quickDropInput" class="quick-drop-field" placeholder="Tempel URL tweet X..." spellcheck="false">
+          <button id="btnQuickDrop" class="btn-drop-action" data-i18n="btnDrop">UNDUH</button>
+        </div>
+      </section>
+
+      <!-- ==================== RECENT VAULT DROPS ==================== -->
+      <section class="vault-card history-preview-card">
+        <div class="history-card-header">
+          <div class="history-title-row">
+            <span class="history-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+              </svg>
+            </span>
+            <span class="history-card-title" data-i18n="recentVaultTitle">RECENT DROPS</span>
+          </div>
+          <button id="btnOpenFullHistory" class="link-view-all" data-i18n="viewAll">Lihat Semua →</button>
+        </div>
+
+        <div id="recentDropsList" class="recent-drops-container">
+          <!-- Dynamic latest 2 items -->
+          <div class="empty-drops-placeholder">
+            <span>Belum ada file diunduh. Buka X untuk mulai!</span>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Bottom App Footer -->
+    <footer class="vault-footer">
+      <div class="footer-left">
+        <span class="footer-dot"></span>
+        <a href="https://x.com" target="_blank" id="btnOpenTwitter" class="footer-x-link" data-i18n="openTwitter">Buka x.com ↗</a>
+      </div>
+      <div class="footer-credit">
+        <span>by <a href="https://github.com/Pikurii" target="_blank" class="author-link">Pikuri</a></span>
+      </div>
+    </footer>
+
+    <!-- Floating Toast Notification -->
+    <div id="toastNotification" class="vault-toast hidden">
+      <span class="toast-spark">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      </span>
+      <span id="toastMessage" class="toast-text">Ready!</span>
+    </div>
+
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

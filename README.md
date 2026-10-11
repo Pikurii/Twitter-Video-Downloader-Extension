@@ -138,12 +138,14 @@ Twitter-Video-Downloader-Extension/
 ├── background.js             # Service worker: stream interception, downloads, history
 ├── content.js                # Content script: DOM observer, badges, GIF LZW encoder
 ├── twitter_interceptor.js    # Injected script: GraphQL & API stream capture
-├── popup.html                # Quick drop popup interface
-├── popup.css                 # Popup glassmorphism stylesheet (Dark & Light)
-├── popup.js                  # Popup controller, particle canvas & stats
-├── settings.html             # Control Hub: general, features, history, ranks
-├── settings.css              # Control Hub stylesheet (Cyber Dark & Light)
-├── settings.js               # Control Hub controller, pattern engine, history
+├── popup/                    # Quick Drop Popup module
+│   ├── popup.html            # Popup interface
+│   ├── popup.css             # Glassmorphism stylesheet (Dark & Light)
+│   └── popup.js              # Popup controller, particle canvas & stats
+├── settings/                 # Control Hub & Options module
+│   ├── settings.html         # Control Hub dashboard
+│   ├── settings.css          # Control Hub stylesheet (Cyber Dark & Light)
+│   └── settings.js           # Settings controller, pattern engine, history
 ├── icons/                    # Extension icons (16, 32, 48, 128 px)
 ├── Video-Downloader-Extension.zip # Pre-built distribution package
 ├── LICENSE                   # MIT License (c) 2026 Pikuri

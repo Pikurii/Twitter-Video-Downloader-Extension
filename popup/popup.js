@@ -447,7 +447,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Open Full Settings Page in New Tab
   function openSettingsPage(tabHash = "") {
-    const url = chrome.runtime.getURL("settings.html" + (tabHash ? `#${tabHash}` : ""));
+    const url = chrome.runtime.getURL("settings/settings.html" + (tabHash ? `#${tabHash}` : ""));
     if (chrome.tabs && chrome.tabs.create) {
       chrome.tabs.create({ url });
     } else if (chrome.runtime.openOptionsPage) {

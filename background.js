@@ -1149,7 +1149,7 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
       if (chrome.runtime.openOptionsPage) {
         chrome.runtime.openOptionsPage();
       } else {
-        chrome.tabs.create({ url: chrome.runtime.getURL("settings.html") });
+        chrome.tabs.create({ url: chrome.runtime.getURL("settings/settings.html") });
       }
       sendResponse({ success: true });
       return;

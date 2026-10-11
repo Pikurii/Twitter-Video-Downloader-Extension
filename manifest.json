@@ -77,7 +77,6 @@
     {
       "resources": [
         "icons/*.png",
-        "test_page.html",
         "twitter_interceptor.js",
         "settings.html"
       ],

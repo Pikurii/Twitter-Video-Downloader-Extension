@@ -133,7 +133,7 @@ X-Vault is built with an offline-first, zero-telemetry architecture:
 ## Project Structure
 
 ```text
-video-download-extension/
+Twitter-Video-Downloader-Extension/
 ├── manifest.json              # Extension manifest (Manifest V3)
 ├── background.js             # Service worker: stream interception, downloads, history
 ├── content.js                # Content script: DOM observer, badges, GIF LZW encoder

@@ -2860,61 +2860,41 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
 
   function updateTweetDlButtonHtml(btn, totalMedia) {
     if (!btn || btn.dataset.saved) return;
+    delete btn.dataset.isPill;
+    btn.style.cssText = `
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: none;
+      border-radius: 9999px;
+      padding: 0 4px;
+      min-width: 32px;
+      height: 32px;
+      color: rgb(113, 118, 123);
+      cursor: pointer;
+      transition: background-color 0.2s, color 0.2s;
+      flex-shrink: 0;
+      gap: 4px;
+    `;
+
+    const iconSvg = `
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="7 10 12 15 17 10"/>
+        <line x1="12" y1="15" x2="12" y2="3"/>
+      </svg>
+    `;
+
     if (totalMedia > 1) {
-      btn.dataset.isPill = "true";
-      btn.title = currentLang === "en" ? `Download All ${totalMedia} Media Items` : `Unduh Semua ${totalMedia} Media`;
-      btn.style.cssText = `
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        background: rgba(29, 155, 240, 0.14);
-        border: 1px solid rgba(29, 155, 240, 0.45);
-        border-radius: 9999px;
-        padding: 4px 11px;
-        min-height: 28px;
-        color: #1d9bf0;
-        font-size: 11.5px;
-        font-weight: 700;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        flex-shrink: 0;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-        user-select: none;
-      `;
+      btn.title = currentLang === "en" ? `Download All (${totalMedia}) Media Items` : `Unduh Semua (${totalMedia}) Media`;
       btn.innerHTML = `
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="7 10 12 15 17 10"/>
-          <line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
-        <span>${currentLang === "en" ? `Download All (${totalMedia})` : `Unduh Semua (${totalMedia})`}</span>
+        ${iconSvg}
+        <span class="x-tweet-dl-count" style="font-size: 13px; font-weight: 400; line-height: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: inherit; transition: color 0.2s;">${totalMedia}</span>
       `;
     } else {
-      btn.dataset.isPill = "false";
       btn.title = currentLang === "en" ? "Download Media (X Downloader)" : "Unduh Media (X Downloader)";
-      btn.style.cssText = `
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        background: transparent;
-        border: none;
-        border-radius: 9999px;
-        padding: 0 6px;
-        min-width: 32px;
-        height: 32px;
-        color: rgb(113, 118, 123);
-        cursor: pointer;
-        transition: background-color 0.2s, color 0.2s;
-        flex-shrink: 0;
-      `;
-      btn.innerHTML = `
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="7 10 12 15 17 10"/>
-          <line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
-      `;
+      btn.innerHTML = iconSvg;
     }
   }
 
@@ -3362,126 +3342,122 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
         }
 
         // D. Inject Main Download Button into Tweet Action Bar
-        const allMediaInTweet = [...outerMediaList, ...quotedMediaList];
-        const totalMedia = allMediaInTweet.length;
-
-        // D1. Inject "Download All" button into Tweet Header (next to Grok / Caret) if outer tweet has > 1 media items
-        if (outerMediaList.length > 1) {
-          const outerInfo = extractTweetInfo(article);
-          const pageUrl = outerTimeLink?.href || window.location.href;
-          injectTweetHeaderDownloadAll(article, outerMediaList, outerInfo, outerTweetId, pageUrl);
-        } else {
-          const staleHeaderBtn = article.querySelector(".x-tweet-header-dl-all-wrapper");
-          if (staleHeaderBtn) staleHeaderBtn.remove();
-        }
-
-        // Clean up any stray floating media download-all badges on media
-        const staleMediaBadges = article.querySelectorAll(".x-media-dl-all-badge");
-        staleMediaBadges.forEach(b => b.remove());
-
+        // Only inject into outer tweet action bar if the outer tweet itself has direct media!
+        // If the outer tweet has NO media of its own (e.g. quote tweet where media is inside quoteBox),
+        // that media belongs to the quote tweet which already has its own download button and badges.
         const actionGroup = findTweetActionBar(article, quoteBox);
-        if (actionGroup && totalMedia > 0) {
-          let btnWrapper = actionGroup.querySelector(".x-tweet-dl-wrapper");
-          let btn = btnWrapper?.querySelector(".x-tweet-dl-btn");
+        if (actionGroup) {
+          if (outerMediaList.length > 0) {
+            let btnWrapper = actionGroup.querySelector(".x-tweet-dl-wrapper");
+            let btn = btnWrapper?.querySelector(".x-tweet-dl-btn");
 
-          if (!btnWrapper) {
-            btnWrapper = document.createElement("div");
-            btnWrapper.className = "x-tweet-dl-wrapper";
-            btnWrapper.style.cssText = "display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; min-width: 36px; height: 100%;";
+            if (!btnWrapper) {
+              btnWrapper = document.createElement("div");
+              btnWrapper.className = "x-tweet-dl-wrapper";
+              btnWrapper.style.cssText = "display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; min-width: 36px; height: 100%;";
 
-            btn = document.createElement("button");
-            btn.type = "button";
-            btn.className = "x-tweet-dl-btn";
-            btn.style.cssText = `
-              display: inline-flex;
-              align-items: center;
-              justify-content: center;
-              background: transparent;
-              border: none;
-              cursor: pointer;
-              padding: 0 6px;
-              min-width: 32px;
-              height: 32px;
-              border-radius: 9999px;
-              color: rgb(113, 118, 123);
-              transition: background-color 0.2s, color 0.2s;
-              flex-shrink: 0;
-            `;
+              btn = document.createElement("button");
+              btn.type = "button";
+              btn.className = "x-tweet-dl-btn";
+              btn.style.cssText = `
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                background: transparent;
+                border: none;
+                cursor: pointer;
+                padding: 0 4px;
+                min-width: 32px;
+                height: 32px;
+                border-radius: 9999px;
+                color: rgb(113, 118, 123);
+                transition: background-color 0.2s, color 0.2s;
+                flex-shrink: 0;
+                gap: 4px;
+              `;
 
-            btnWrapper.appendChild(btn);
+              btnWrapper.appendChild(btn);
 
-            btn.addEventListener("mouseenter", () => {
-              if (btn.dataset.saved) return;
-              if (btn.dataset.isPill === "true") {
-                btn.style.background = "#1d9bf0";
-                btn.style.borderColor = "#1d9bf0";
-                btn.style.color = "#ffffff";
-              } else {
+              btn.addEventListener("mouseenter", () => {
+                if (btn.dataset.saved || btn.dataset.downloading) return;
                 btn.style.backgroundColor = "rgba(29, 155, 240, 0.1)";
                 btn.style.color = "rgb(29, 155, 240)";
-              }
-            });
-            btn.addEventListener("mouseleave", () => {
-              if (btn.dataset.saved) return;
-              if (btn.dataset.isPill === "true") {
-                btn.style.background = "rgba(29, 155, 240, 0.14)";
-                btn.style.borderColor = "rgba(29, 155, 240, 0.45)";
-                btn.style.color = "#1d9bf0";
-              } else {
+              });
+              btn.addEventListener("mouseleave", () => {
+                if (btn.dataset.saved || btn.dataset.downloading) return;
                 btn.style.backgroundColor = "transparent";
                 btn.style.color = "rgb(113, 118, 123)";
-              }
-            });
-
-            btn.addEventListener("click", (e) => {
-              e.stopPropagation();
-              e.preventDefault();
-
-              const outerInfo = extractTweetInfo(article);
-              const pageUrl = outerTimeLink?.href || window.location.href;
-
-              const markSuccess = () => {
-                btn.dataset.saved = "true";
-                btn.style.color = "#ffffff";
-                btn.style.background = "#00ba7c";
-                btn.style.borderColor = "#00ba7c";
-                btn.innerHTML = `
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                  ${btn.dataset.isPill === "true" ? `<span>${currentLang === "en" ? "Saved" : "Tersimpan"}</span>` : ""}
-                `;
-                setTimeout(() => {
-                  delete btn.dataset.saved;
-                  updateTweetDlButtonHtml(btn, allMediaInTweet.length);
-                }, 2500);
-              };
-              const markReset = () => {
-                delete btn.dataset.saved;
-                updateTweetDlButtonHtml(btn, allMediaInTweet.length);
-              };
-
-              downloadAllMediaList(allMediaInTweet, outerTweetId, outerInfo, pageUrl, (ok) => {
-                if (ok) markSuccess();
-                else markReset();
               });
-            });
 
-            if (actionGroup.children.length >= 2) {
-              actionGroup.insertBefore(btnWrapper, actionGroup.lastElementChild);
-            } else {
-              actionGroup.appendChild(btnWrapper);
+              btn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                if (btn.dataset.downloading || btn.dataset.saved) return;
+
+                btn.dataset.downloading = "true";
+                btn.style.color = "rgb(29, 155, 240)";
+                btn.innerHTML = `
+                  <svg class="x-vault-spin" width="18" height="18" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="9" stroke="rgba(29, 155, 240, 0.25)" stroke-width="2.5"/>
+                    <path d="M12 3a9 9 0 0 1 9 9" stroke="#1d9bf0" stroke-width="2.5" stroke-linecap="round"/>
+                  </svg>
+                `;
+
+                const outerInfo = extractTweetInfo(article);
+                const pageUrl = outerTimeLink?.href || window.location.href;
+
+                const markSuccess = () => {
+                  delete btn.dataset.downloading;
+                  btn.dataset.saved = "true";
+                  btn.style.color = "#00ba7c";
+                  btn.style.backgroundColor = "rgba(0, 186, 124, 0.1)";
+                  btn.innerHTML = `
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                  `;
+                  setTimeout(() => {
+                    delete btn.dataset.saved;
+                    btn.style.backgroundColor = "transparent";
+                    btn.style.color = "rgb(113, 118, 123)";
+                    updateTweetDlButtonHtml(btn, outerMediaList.length);
+                  }, 2500);
+                };
+                const markReset = () => {
+                  delete btn.dataset.downloading;
+                  delete btn.dataset.saved;
+                  btn.style.backgroundColor = "transparent";
+                  btn.style.color = "rgb(113, 118, 123)";
+                  updateTweetDlButtonHtml(btn, outerMediaList.length);
+                };
+
+                downloadAllMediaList(outerMediaList, outerTweetId, outerInfo, pageUrl, (ok) => {
+                  if (ok) markSuccess();
+                  else markReset();
+                });
+              });
+
+              if (actionGroup.children.length >= 2) {
+                actionGroup.insertBefore(btnWrapper, actionGroup.lastElementChild);
+              } else {
+                actionGroup.appendChild(btnWrapper);
+              }
             }
-          }
 
-          if (btn && !btn.dataset.saved) {
-            updateTweetDlButtonHtml(btn, totalMedia);
-          }
+            if (btn && !btn.dataset.saved && !btn.dataset.downloading) {
+              updateTweetDlButtonHtml(btn, outerMediaList.length);
+            }
 
-          if (contentSettings.inTweetBtn === false) {
-            btnWrapper.style.display = "none";
+            if (contentSettings.inTweetBtn === false) {
+              btnWrapper.style.display = "none";
+            } else {
+              btnWrapper.style.display = "inline-flex";
+            }
           } else {
-            btnWrapper.style.display = "inline-flex";
+            // Outer tweet has NO direct media of its own (e.g. text-only quote tweet)
+            // Remove any stale action bar button so we don't have duplicate or misplaced buttons!
+            const staleActionBtn = actionGroup.querySelector(".x-tweet-dl-wrapper");
+            if (staleActionBtn) staleActionBtn.remove();
           }
         }
       } catch (err) {

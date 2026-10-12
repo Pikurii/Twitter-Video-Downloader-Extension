@@ -350,11 +350,15 @@ document.addEventListener("DOMContentLoaded", () => {
       const row = document.createElement("div");
       row.className = "recent-drop-item";
 
-      const isGif = item.type === "gif" || (item.filename && item.filename.toLowerCase().endsWith(".gif")) || (item.title && item.title.toLowerCase().includes("gif"));
-      const isImg = !isGif && item.type === "image";
+      const isAudio = item.type === "audio" || item.isAudioOnly || item.quality === "MP3" || (item.filename && item.filename.toLowerCase().endsWith(".mp3"));
+      const isGif = !isAudio && (item.type === "gif" || (item.filename && item.filename.toLowerCase().endsWith(".gif")) || (item.title && item.title.toLowerCase().includes("gif")));
+      const isImg = !isAudio && !isGif && item.type === "image";
       let badgeClass = "video";
       let badgeLabel = "MP4";
-      if (isGif) {
+      if (isAudio) {
+        badgeClass = "audio";
+        badgeLabel = "MP3";
+      } else if (isGif) {
         badgeClass = "gif";
         badgeLabel = "GIF";
       } else if (isImg) {
@@ -445,15 +449,50 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ==================== INTERACTIVE EVENT LISTENERS ====================
 
-  // Open Full Settings Page in New Tab
+  // Open Full Settings Page (Focus existing tab if already open, or open new tab)
   function openSettingsPage(tabHash = "") {
-    const url = chrome.runtime.getURL("settings/settings.html" + (tabHash ? `#${tabHash}` : ""));
-    if (chrome.tabs && chrome.tabs.create) {
-      chrome.tabs.create({ url });
+    const baseUrl = chrome.runtime.getURL("settings/settings.html");
+    const targetUrl = baseUrl + (tabHash ? `#${tabHash}` : "");
+
+    if (chrome.tabs && chrome.tabs.query) {
+      chrome.tabs.query({}, (tabs) => {
+        const existingTab = (tabs || []).find(t => {
+          if (!t || !t.url) return false;
+          return t.url.split("#")[0] === baseUrl;
+        });
+
+        if (existingTab && existingTab.id) {
+          const updateInfo = { active: true };
+          if (tabHash && existingTab.url !== targetUrl) {
+            updateInfo.url = targetUrl;
+          }
+          chrome.tabs.update(existingTab.id, updateInfo, (updatedTab) => {
+            const winId = updatedTab?.windowId || existingTab.windowId;
+            if (chrome.windows && chrome.windows.update && winId) {
+              chrome.windows.update(winId, { focused: true });
+            }
+            window.close();
+          });
+        } else if (chrome.tabs.create) {
+          chrome.tabs.create({ url: targetUrl }, () => {
+            window.close();
+          });
+        } else if (chrome.runtime.openOptionsPage) {
+          chrome.runtime.openOptionsPage();
+          window.close();
+        } else {
+          window.open(targetUrl, "_blank");
+        }
+      });
     } else if (chrome.runtime.openOptionsPage) {
       chrome.runtime.openOptionsPage();
+      window.close();
+    } else if (chrome.tabs && chrome.tabs.create) {
+      chrome.tabs.create({ url: targetUrl }, () => {
+        window.close();
+      });
     } else {
-      window.open(url, "_blank");
+      window.open(targetUrl, "_blank");
     }
   }
 

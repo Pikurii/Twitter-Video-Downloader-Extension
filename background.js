@@ -26,6 +26,7 @@ const DEFAULT_SETTINGS = {
   autoRevealNsfw: true,
   inTweetBtn: true,
   mediaCornerBadges: true,
+  badgeMediaTypes: ["video", "gif", "photo"],
   headerDlAll: true,
   keyboardShortcut: true,
   historyLogging: true,
@@ -37,6 +38,8 @@ const mediaStore = new Map();
 const tabMetadataStore = new Map();
 const downloadTracker = new Map();
 const completedDownloadIds = new Set();
+const intendedDownloadFilenames = new Map();
+const intendedDownloadByUrl = new Map();
 
 // In-memory caches for Twitter / X media
 const twitterThumbStore = new Map();
@@ -238,6 +241,66 @@ function cleanTitleString(rawTitle) {
   return t;
 }
 
+// Find best matching video format from available GraphQL/variant formats
+function findMatchingFormat(availableFormats, targetQuality) {
+  if (!Array.isArray(availableFormats) || availableFormats.length === 0 || !targetQuality) return null;
+  const target = String(targetQuality).toLowerCase().trim();
+  const playable = availableFormats.filter(f => f && f.url && !f.url.includes(".m3u8") && f.format !== "HLS" && f.format !== "AUDIO");
+  const pool = playable.length > 0 ? playable : availableFormats;
+
+  if (target === "native" || target === "highest" || target === "max") {
+    return pool[0] || null;
+  }
+
+  const targetNum = parseInt(target.replace(/\D/g, ""), 10); // e.g. 270, 360, 480, 720, 1080
+
+  // 1. Exact string match on quality or resolution
+  let match = pool.find(f => {
+    const q = (f.quality || "").toLowerCase();
+    const res = (f.resolution || "").toLowerCase();
+    return q === target || res === target || q.includes(target) || res.includes(target);
+  });
+  if (match) return match;
+
+  // 2. Numeric dimension match (checking width, height, or shorter dimension)
+  if (targetNum > 0) {
+    match = pool.find(f => {
+      const qNum = parseInt((f.quality || "").replace(/\D/g, ""), 10);
+      if (qNum === targetNum) return true;
+      if (f.resolution && f.resolution.includes("x")) {
+        const parts = f.resolution.split("x").map(n => parseInt(n, 10)).filter(Boolean);
+        if (parts.length === 2) {
+          const minDim = Math.min(parts[0], parts[1]);
+          if (minDim === targetNum || parts[1] === targetNum || parts[0] === targetNum) return true;
+        }
+      }
+      return false;
+    });
+    if (match) return match;
+
+    // 3. Closest dimension match
+    let bestDiff = Infinity;
+    let closest = null;
+    for (const f of pool) {
+      let fNum = parseInt((f.quality || "").replace(/\D/g, ""), 10);
+      if (!fNum && f.resolution && f.resolution.includes("x")) {
+        const parts = f.resolution.split("x").map(n => parseInt(n, 10)).filter(Boolean);
+        if (parts.length === 2) fNum = Math.min(parts[0], parts[1]);
+      }
+      if (fNum > 0) {
+        const diff = Math.abs(fNum - targetNum);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          closest = f;
+        }
+      }
+    }
+    if (closest) return closest;
+  }
+
+  return pool[0] || null;
+}
+
 // Generate formatted Twitter filename based on user settings
 async function getFormattedTwitterFilename(item, customPayload = null) {
   let settings = {};
@@ -283,16 +346,21 @@ async function getFormattedTwitterFilename(item, customPayload = null) {
   if (!tweetText && item.title) {
     const lower = item.title.trim().toLowerCase();
     if (lower !== "home" && lower !== "home.mp4" && lower !== "x.mp4" && lower !== "video.mp4" && !lower.startsWith("home.") && !lower.startsWith("x.")) {
-      tweetText = item.title.replace(/\.(mp4|webm|mkv|m3u8|mp3)$/i, "");
+      tweetText = item.title.replace(/\.(mp4|webm|mkv|m3u8|mp3|wav)$/i, "");
     }
   }
 
   const isGif = Boolean(customPayload?.isGif || item.quality === "GIF" || item.format === "GIF");
-  const quality = isGif ? (customPayload?.quality || "GIF") : (item.selectedFormat?.quality || item.quality || "HD");
+  const isAudio = Boolean(customPayload?.isAudioOnly || item.format === "AUDIO" || item.isAudioOnly);
+  const quality = isGif
+    ? (customPayload?.quality || "GIF")
+    : isAudio
+      ? "MP3"
+      : (customPayload?.targetQuality || item.selectedFormat?.quality || item.quality || "HD");
   let ext = "mp4";
   if (customPayload?.ext) {
     ext = customPayload.ext.toLowerCase();
-  } else if (item.format === "AUDIO" || item.isAudioOnly) {
+  } else if (isAudio) {
     ext = "mp3";
   } else if (customPayload?.asGif || item.format === "GIF" || customPayload?.gifFormat?.startsWith("gif")) {
     ext = "gif";
@@ -313,7 +381,7 @@ async function getFormattedTwitterFilename(item, customPayload = null) {
         case "{tweet_id}": return String(tweetId);
         case "{serial}": return "01";
         case "{quality}": return quality;
-        case "{text}": return cleanText || (isGif ? "GIF" : "Video");
+        case "{text}": return cleanText || (isGif ? "GIF" : (isAudio ? "Audio" : "Video"));
         case "{date}": return new Date().toISOString().split("T")[0];
         case "{datetime}": {
           const d = new Date();
@@ -422,7 +490,6 @@ async function getFormattedTwitterImageFilename(payload, ext = "jpg") {
 }
 
 // Gamified stats & history recorder
-// Gamified stats & history recorder
 async function recordDownload(type = "video", metadata = {}) {
   try {
     const data = await chrome.storage.local.get(["settings", "downloadStats", "downloadHistory"]);
@@ -438,12 +505,14 @@ async function recordDownload(type = "video", metadata = {}) {
       return;
     }
 
-    const stats = data.downloadStats || { totalDownloads: 0, videoCount: 0, imageCount: 0 };
+    const stats = data.downloadStats || { totalDownloads: 0, videoCount: 0, imageCount: 0, audioCount: 0 };
     stats.totalDownloads = (stats.totalDownloads || 0) + 1;
     if (type === "image") {
       stats.imageCount = (stats.imageCount || 0) + 1;
     } else if (type === "gif") {
       stats.gifCount = (stats.gifCount || 0) + 1;
+    } else if (type === "audio") {
+      stats.audioCount = (stats.audioCount || 0) + 1;
     } else {
       stats.videoCount = (stats.videoCount || 0) + 1;
     }
@@ -454,7 +523,7 @@ async function recordDownload(type = "video", metadata = {}) {
         id: "dl_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
         downloadId: metadata.downloadId || null,
         type: type,
-        title: metadata.title || (type === "image" ? "Twitter Photo" : (type === "gif" ? "Twitter GIF" : "Twitter Video")),
+        title: metadata.title || (type === "image" ? "Twitter Photo" : (type === "gif" ? "Twitter GIF" : (type === "audio" ? "Twitter Audio" : "Twitter Video"))),
         filename: metadata.filename || "",
         timestamp: Date.now(),
         tweetId: metadata.tweetId || null,
@@ -675,6 +744,40 @@ chrome.downloads.onChanged.addListener((delta) => {
   }
 });
 
+// Reliable Subfolder & Account directory enforcement across all Chromium browsers
+if (chrome.downloads && chrome.downloads.onDeterminingFilename) {
+  chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+    let desiredPath = intendedDownloadFilenames.get(item.id) || 
+                      intendedDownloadFilenames.get(Number(item.id)) || 
+                      intendedDownloadFilenames.get(String(item.id)) ||
+                      intendedDownloadByUrl.get(item.url);
+
+    if (!desiredPath && item.url) {
+      const cleanUrl = item.url.split("?")[0];
+      for (const [storedUrl, p] of intendedDownloadByUrl.entries()) {
+        if (storedUrl === item.url || storedUrl.split("?")[0] === cleanUrl) {
+          desiredPath = p;
+          intendedDownloadByUrl.delete(storedUrl);
+          break;
+        }
+      }
+    }
+
+    if (desiredPath) {
+      intendedDownloadFilenames.delete(item.id);
+      intendedDownloadFilenames.delete(Number(item.id));
+      intendedDownloadFilenames.delete(String(item.id));
+      intendedDownloadByUrl.delete(item.url);
+
+      desiredPath = desiredPath.replace(/^[\/\\]+/, "").replace(/\\/g, "/");
+      suggest({ filename: desiredPath, conflictAction: "uniquify" });
+      return;
+    } else {
+      suggest();
+    }
+  });
+}
+
 // Central Message Listener
 chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
   const { action, payload } = req;
@@ -811,9 +914,11 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
       }
 
       const formats = (Array.isArray(item?.availableFormats) ? item.availableFormats : []).map(f => ({
+        format: f.format || "MP4",
         quality: f.quality || f.resolution || "HD",
         resolution: f.resolution || "",
-        bitrate: f.bitrate || 0,
+        bitrate: f.bitrate || "",
+        bitrateRaw: f.bitrateRaw || 0,
         url: f.url
       }));
 
@@ -883,38 +988,60 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         const data = await chrome.storage.local.get("settings");
         const settings = data?.settings || {};
 
+        let chosenQualityLabel = payload?.targetQuality || null;
+
         if (payload?.targetFormatUrl) {
           downloadUrl = payload.targetFormatUrl;
+          if (Array.isArray(itemToDownload.availableFormats)) {
+            const matched = itemToDownload.availableFormats.find(f => f.url === payload.targetFormatUrl);
+            if (matched) {
+              itemToDownload.selectedFormat = matched;
+              chosenQualityLabel = matched.quality || chosenQualityLabel;
+            }
+          }
         } else if (payload?.targetQuality) {
-          const target = payload.targetQuality.toLowerCase();
-          const matched = itemToDownload.availableFormats?.find(f => (f.quality && f.quality.toLowerCase().includes(target)) || (f.resolution && f.resolution.toLowerCase().includes(target)));
-          if (matched?.url) downloadUrl = matched.url;
-        } else if (Array.isArray(itemToDownload.availableFormats) && settings.defaultQuality && settings.defaultQuality !== "native" && settings.defaultQuality !== "ask") {
-          const target = settings.defaultQuality.toLowerCase();
-          const matched = itemToDownload.availableFormats.find(f => (f.quality && f.quality.toLowerCase().includes(target)) || (f.resolution && f.resolution.toLowerCase().includes(target)));
+          const matched = findMatchingFormat(itemToDownload.availableFormats, payload.targetQuality);
           if (matched?.url) {
             downloadUrl = matched.url;
+            itemToDownload.selectedFormat = matched;
+            chosenQualityLabel = matched.quality || chosenQualityLabel;
+          }
+        } else if (Array.isArray(itemToDownload.availableFormats) && settings.defaultQuality && settings.defaultQuality !== "native" && settings.defaultQuality !== "ask") {
+          const matched = findMatchingFormat(itemToDownload.availableFormats, settings.defaultQuality);
+          if (matched?.url) {
+            downloadUrl = matched.url;
+            itemToDownload.selectedFormat = matched;
+            chosenQualityLabel = matched.quality || chosenQualityLabel;
           }
         }
 
-        let fname = await getFormattedTwitterFilename(itemToDownload, payload);
-        if (payload?.isAudioOnly) {
-          fname = fname.replace(/\.mp4$/i, ".mp3");
+        if (chosenQualityLabel) {
+          itemToDownload.quality = chosenQualityLabel;
         }
+
+        let fname = await getFormattedTwitterFilename(itemToDownload, {
+          ...payload,
+          targetQuality: chosenQualityLabel || payload?.targetQuality
+        });
         const askSave = Boolean(settings.askSaveLocation);
 
+        intendedDownloadByUrl.set(downloadUrl, fname);
         chrome.downloads.download({
           url: downloadUrl,
           filename: fname,
           saveAs: askSave
         }, (downloadId) => {
           if (downloadId) {
+            intendedDownloadFilenames.set(downloadId, fname);
+            intendedDownloadFilenames.set(Number(downloadId), fname);
+            intendedDownloadFilenames.set(String(downloadId), fname);
             const resolvedThumbnail = payload?.thumbnail || itemToDownload.thumbnail || (twVideoId ? twitterThumbStore.get(twVideoId) : null);
             const resolvedTweetUrl = payload?.pageUrl || itemToDownload.tweetUrl || (tweetId ? `https://x.com/${payload?.screenName || itemToDownload.screenName || "i"}/status/${tweetId}` : null);
             const resolvedTweetTime = payload?.tweetTime || itemToDownload.tweetTime || "";
             const resolvedTweetIsoDate = payload?.tweetIsoDate || itemToDownload.tweetIsoDate || "";
+            const resolvedQuality = payload?.isGif ? "GIF" : (payload?.isAudioOnly ? "MP3" : (chosenQualityLabel || itemToDownload.quality || "HD"));
 
-            trackPendingDownload(downloadId, payload?.isGif ? "gif" : "video", {
+            trackPendingDownload(downloadId, payload?.isGif ? "gif" : (payload?.isAudioOnly ? "audio" : "video"), {
               title: itemToDownload.tweetText || payload?.tweetText || itemToDownload.title || ("Tweet " + tweetId),
               filename: fname,
               tweetId: tweetId || itemToDownload.tweetId,
@@ -925,6 +1052,7 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
               tweetIsoDate: resolvedTweetIsoDate,
               thumbnail: resolvedThumbnail,
               tweetUrl: resolvedTweetUrl,
+              quality: resolvedQuality,
               downloadUrl: downloadUrl,
               clientReqId: payload?.clientReqId || null,
               tabId: sender.tab ? sender.tab.id : null
@@ -932,10 +1060,17 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
 
             if (data?.settings?.downloadThumbnail && itemToDownload.thumbnail) {
               const thumbName = fname.replace(/\.mp4$/i, ".jpg");
+              intendedDownloadByUrl.set(itemToDownload.thumbnail, thumbName);
               chrome.downloads.download({
                 url: itemToDownload.thumbnail,
                 filename: thumbName,
                 saveAs: false
+              }, (thumbDlId) => {
+                if (thumbDlId) {
+                  intendedDownloadFilenames.set(thumbDlId, thumbName);
+                  intendedDownloadFilenames.set(Number(thumbDlId), thumbName);
+                  intendedDownloadFilenames.set(String(thumbDlId), thumbName);
+                }
               });
             }
           }
@@ -944,6 +1079,64 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
       } else {
         sendResponse({ success: false, error: "Media tweet belum dimuat" });
       }
+      return;
+    }
+
+    if (action === "DOWNLOAD_AUDIO_BLOB") {
+      const { blobUrl, tweetId, outerTweetId, author, screenName, tweetText, tweetTime, tweetIsoDate, thumbnail, pageUrl, ext, clientReqId } = payload || {};
+      const tid = tweetId || outerTweetId || Date.now();
+      const fakeItem = {
+        tweetId: tid,
+        author: author || "Pengguna X",
+        screenName: screenName || "",
+        tweetText: tweetText || "Audio",
+        format: "AUDIO",
+        quality: "MP3",
+        isAudioOnly: true
+      };
+
+      const fname = await getFormattedTwitterFilename(fakeItem, {
+        author,
+        screenName,
+        tweetText,
+        tweetId: tid,
+        ext: ext || "mp3",
+        isAudioOnly: true,
+        targetQuality: "MP3"
+      });
+
+      const data = await chrome.storage.local.get("settings");
+      const askSave = Boolean(data?.settings?.askSaveLocation);
+
+      intendedDownloadByUrl.set(blobUrl, fname);
+      chrome.downloads.download({
+        url: blobUrl,
+        filename: fname,
+        saveAs: askSave
+      }, (downloadId) => {
+        if (downloadId) {
+          intendedDownloadFilenames.set(downloadId, fname);
+          intendedDownloadFilenames.set(Number(downloadId), fname);
+          intendedDownloadFilenames.set(String(downloadId), fname);
+          trackPendingDownload(downloadId, "audio", {
+            title: tweetText || "Audio " + tid,
+            filename: fname,
+            tweetId: tid,
+            author,
+            screenName,
+            tweetText,
+            tweetTime: tweetTime || "",
+            tweetIsoDate: tweetIsoDate || "",
+            thumbnail: thumbnail || null,
+            tweetUrl: pageUrl || (tweetId ? `https://x.com/${screenName || "i"}/status/${tweetId}` : null),
+            quality: "MP3",
+            downloadUrl: blobUrl,
+            clientReqId: clientReqId || null,
+            tabId: sender.tab ? sender.tab.id : null
+          });
+        }
+        sendResponse({ success: Boolean(downloadId), downloadId, filename: fname, clientReqId });
+      });
       return;
     }
 
@@ -965,12 +1158,17 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
       const data = await chrome.storage.local.get("settings");
       const askSave = Boolean(data?.settings?.askSaveLocation);
 
+      intendedDownloadByUrl.set(highResUrl, fname);
+      intendedDownloadByUrl.set(highResUrl.split("?")[0], fname);
       chrome.downloads.download({
         url: highResUrl,
         filename: fname,
         saveAs: askSave
       }, (downloadId) => {
         if (downloadId) {
+          intendedDownloadFilenames.set(downloadId, fname);
+          intendedDownloadFilenames.set(Number(downloadId), fname);
+          intendedDownloadFilenames.set(String(downloadId), fname);
           const resolvedTweetUrl = payload?.pageUrl || (tweetId ? `https://x.com/${screenName || "i"}/status/${tweetId}` : null);
           trackPendingDownload(downloadId, "image", {
             title: tweetText || `@${screenName || author || "user"} photo`,
@@ -1054,12 +1252,16 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         const data = await chrome.storage.local.get("settings");
         const askSave = Boolean(data?.settings?.askSaveLocation);
 
+        intendedDownloadByUrl.set(dataUrl, fname);
         chrome.downloads.download({
           url: dataUrl,
           filename: fname,
           saveAs: askSave
         }, (downloadId) => {
           if (downloadId) {
+            intendedDownloadFilenames.set(downloadId, fname);
+            intendedDownloadFilenames.set(Number(downloadId), fname);
+            intendedDownloadFilenames.set(String(downloadId), fname);
             const resolvedTweetUrl = payload?.pageUrl || (tweetId ? `https://x.com/${screenName || "i"}/status/${tweetId}` : null);
             let resolvedThumb = payload?.thumbnail;
             if (!resolvedThumb || resolvedThumb.startsWith("data:image/gif")) {
@@ -1146,11 +1348,40 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
     }
 
     if (action === "OPEN_SETTINGS_PAGE") {
-      if (chrome.runtime.openOptionsPage) {
+      const tabHash = payload?.tabHash || "";
+      const baseUrl = chrome.runtime.getURL("settings/settings.html");
+      const targetUrl = baseUrl + (tabHash ? `#${tabHash}` : "");
+
+      if (chrome.tabs && chrome.tabs.query) {
+        chrome.tabs.query({}, (tabs) => {
+          const existingTab = (tabs || []).find(t => {
+            if (!t || !t.url) return false;
+            return t.url.split("#")[0] === baseUrl;
+          });
+
+          if (existingTab && existingTab.id) {
+            const updateInfo = { active: true };
+            if (tabHash && existingTab.url !== targetUrl) {
+              updateInfo.url = targetUrl;
+            }
+            chrome.tabs.update(existingTab.id, updateInfo, (updatedTab) => {
+              const winId = updatedTab?.windowId || existingTab.windowId;
+              if (chrome.windows && chrome.windows.update && winId) {
+                chrome.windows.update(winId, { focused: true });
+              }
+            });
+          } else if (chrome.tabs.create) {
+            chrome.tabs.create({ url: targetUrl });
+          } else if (chrome.runtime.openOptionsPage) {
+            chrome.runtime.openOptionsPage();
+          }
+        });
+      } else if (chrome.runtime.openOptionsPage) {
         chrome.runtime.openOptionsPage();
-      } else {
-        chrome.tabs.create({ url: chrome.runtime.getURL("settings/settings.html") });
+      } else if (chrome.tabs && chrome.tabs.create) {
+        chrome.tabs.create({ url: targetUrl });
       }
+
       sendResponse({ success: true });
       return;
     }

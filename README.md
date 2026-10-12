@@ -27,10 +27,11 @@ Engineered under Chrome Manifest V3 specifications with a strict privacy-first a
 ## Core Features
 
 ### Video & Audio Quality Selection
-- Download videos at their native source resolution or choose from specific stream tiers: 1080p, 720p, 480p, 360p, or 270p.
-- **Audio Only (MP3)**: Extract pure audio streams from videos and podcasts without downloading redundant video payloads.
-- **Interactive Quality Chooser**: Trigger a floating quality popover on-the-fly or configure a default quality rule ("Always ask" or "Native best").
-- **Secondary Media Context Menu**: Right-click any video download button to instantly open resolution choices without modifying your default preferences.
+- **Comprehensive Stream Tiers**: Download videos at their native source resolution or choose from specific quality options: 1080p (Full HD), 720p (HD), 480p (Data Saver), 360p (Standard), 270p (Smallest), or Native best.
+- **Portrait / Vertical Video Optimization**: Employs minimum-dimension matching (`Math.min(width, height)`) to guarantee vertical videos (such as `270x480`) are categorized and downloaded strictly as 270p rather than being misidentified as 480p or falling back to 1080p.
+- **True Audio-Only Extraction (MP3)**: Extracts authentic audio streams using the Web Audio API (`AudioContext.decodeAudioData`) and encodes them directly to 192kbps MP3 via client-side LAME encoder (`lamejs`) with 16-bit PCM WAV fallback. Files contain **zero video tracks or containers**. Intelligently selects the lowest-bitrate video stream (270p) for near-instant processing and minimal memory footprint.
+- **Interactive Quality Chooser**: Trigger a floating quality popover on-the-fly with a "Remember choice" option or configure a default quality rule in Settings.
+- **Secondary Media Context Menu**: Right-click any video download button in the timeline to instantly open resolution choices without modifying your default preferences.
 
 ### Spec-Compliant Client-Side GIF Conversion
 - Convert Twitter loop video streams directly into animated GIF89a files right inside your browser session without third-party web converters.
@@ -46,19 +47,24 @@ Engineered under Chrome Manifest V3 specifications with a strict privacy-first a
 - **Dedicated Quote Tweet Controls**: Quote tweet cards feature independent batch download buttons positioned in the header so they never obstruct media visibility.
 - **Live Progress Indicators**: Circular ring spinners provide real-time percentage feedback for ongoing downloads.
 
+### Smart Single-Tab Settings Management
+- **Zero Tab Clutter**: Clicking the Settings button in the extension popup or timeline modals intelligently focuses and switches to an already-open Settings tab rather than spawning duplicate tabs.
+- **Live Section Switching**: Supports hash navigation (`#general`, `#features`, `#history`, `#about`) with instant responsive switching via `hashchange` listeners without page reloads.
+
 ### Dynamic Filename Formatting Engine
 - Customize automated file names using real-time dynamic tags:
   - `{author}` - Tweet author display name
   - `{username}` - Author handle without the `@` symbol
   - `{tweet_id}` - Unique status identifier
-  - `{quality}` - Resolution tag (e.g., `1080p`, `720p`, `audio`, `GIF`)
+  - `{quality}` - Resolution tag (e.g., `1080p`, `720p`, `270p`, `MP3`, `GIF`)
   - `{date}` - Post date formatted as `YYYYMMDD`
   - `{time}` - Post time formatted as `HHmmss`
   - `{ext}` - File extension (`mp4`, `mp3`, `jpg`, `gif`)
-- Live preview display in Settings with tag management, visual validation, and pattern resets.
+- Live preview display in Settings with tag management, visual collision protection, and pattern resets.
 
 ### Local Archive & Gamified Control Hub
-- **Offline Download History**: Search, inspect, re-download, and filter past downloads by media format (MP4, JPG, GIF).
+- **Offline Download History**: Search, inspect, re-download, and filter past downloads by media format (**MP4, JPG, GIF, and MP3**).
+- **Dedicated Audio Categorization**: Distinct Neon Rose / Magenta Synth badges and musical note icons for MP3 files with isolated audio statistics tracking.
 - **Data Portability**: Export and import your complete download history as JSON backups anytime.
 - **Cyberpunk Leveling System**: Earn drops and rank up across 8 distinct tier milestones (from *Rookie* to *Godlike*) featuring segmented progress meters.
 
@@ -68,16 +74,15 @@ Engineered under Chrome Manifest V3 specifications with a strict privacy-first a
 
 ---
 
-## Keyboard Shortcuts
+## Latest Updates & Changelog (v2.0.0)
 
-| Shortcut | Action |
-| :--- | :--- |
-| `Alt + X` | Open X-Vault Quick Drop popup |
-| `Esc` | Close open quality pickers or floating popups |
-
-To customize shortcuts in your browser:
-- **Chrome / Brave / Edge**: Navigate to `chrome://extensions/shortcuts`
-- **Opera / Opera GX**: Navigate to `chrome://extensions/shortcuts` (standard Chromium shortcut configuration)
+- **Authentic MP3 Audio Extraction**: Integrated `lame.min.js` and Web Audio API (`AudioContext.decodeAudioData`) to extract pure audio with zero video tracks, resolving the issue where audio downloads were previously 1080p MP4 files renamed to `.mp3`.
+- **Full Resolution Tiering (270p - 1080p)**: Added 360p and 270p options in the Control Hub and floating resolution chooser modal.
+- **Vertical / Portrait Video Resolution Fix**: Fixed dimension parsing using `minDim = Math.min(width, height)` so that 270x480 portrait videos download strictly as 270p instead of defaulting to 1080p.
+- **Strict Quality Stream Enforcement**: Guaranteed that the requested stream URL and `{quality}` filename token strictly match the chosen resolution.
+- **Smart Single-Tab Settings Management**: Clicking the Settings button in the popup or timeline modals now instantly focuses and switches to the existing Settings tab instead of opening redundant duplicate tabs.
+- **Dedicated MP3 Archive & Filter**: Added an **MP3** filter button in the Control Hub History toolbar, with vibrant neon rose badge styling and isolated audio statistics tracking.
+- **CSP / CORS Resilience**: Added background proxy fallback (`FETCH_MEDIA_BUFFER`) for audio stream fetching to ensure 100% reliable extraction across all tweet security headers.
 
 ---
 
@@ -138,6 +143,7 @@ Twitter-Video-Downloader-Extension/
 ├── background.js             # Service worker: stream interception, downloads, history
 ├── content.js                # Content script: DOM observer, badges, GIF LZW encoder
 ├── twitter_interceptor.js    # Injected script: GraphQL & API stream capture
+├── lame.min.js               # Client-side LAME MP3 audio encoder library
 ├── popup/                    # Quick Drop Popup module
 │   ├── popup.html            # Popup interface
 │   ├── popup.css             # Glassmorphism stylesheet (Dark & Light)

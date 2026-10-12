@@ -18,19 +18,22 @@
   }
 
   function getQualityFromRes(w, h, bitrate) {
-    const height = h || 0;
-    if (height >= 2160 || w >= 3840) return "4K";
-    if (height >= 1440 || w >= 2560) return "1440p";
-    if (height >= 1080 || w >= 1920) return "1080p";
-    if (height >= 720 || w >= 1280) return "720p";
-    if (height >= 480 || w >= 854) return "480p";
-    if (height >= 360) return "360p";
-    if (height >= 270) return "270p";
+    const minDim = (w && h) ? Math.min(w, h) : (h || w || 0);
+    const maxDim = (w && h) ? Math.max(w, h) : (h || w || 0);
+
+    if (minDim >= 2160 || maxDim >= 3840) return "4K";
+    if (minDim >= 1440 || maxDim >= 2560) return "1440p";
+    if (minDim >= 1080 || maxDim >= 1920) return "1080p";
+    if (minDim >= 720 || maxDim >= 1280) return "720p";
+    if (minDim >= 480 || maxDim >= 854) return "480p";
+    if (minDim >= 360 || maxDim >= 640) return "360p";
+    if (minDim >= 240) return "270p";
 
     if (bitrate >= 8000000) return "1440p";
     if (bitrate >= 3000000) return "1080p";
     if (bitrate >= 1500000) return "720p";
-    if (bitrate >= 600000) return "360p";
+    if (bitrate >= 800000) return "480p";
+    if (bitrate >= 400000) return "360p";
     return "270p";
   }
 
@@ -93,6 +96,7 @@
         resolution: resStr,
         quality: quality,
         bitrate: bitrateStr,
+        bitrateRaw: bw,
         label: label,
         url: v.url
       };

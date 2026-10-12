@@ -287,6 +287,8 @@
               <button class="choice-pill" data-value="1080p" data-i18n="quality1080p">1080p (Full HD)</button>
               <button class="choice-pill" data-value="720p" data-i18n="quality720p">720p (HD)</button>
               <button class="choice-pill" data-value="480p" data-i18n="quality480p">480p (Hemat Data)</button>
+              <button class="choice-pill" data-value="360p" data-i18n="quality360p">360p (Standar)</button>
+              <button class="choice-pill" data-value="270p" data-i18n="quality270p">270p (Paling Kecil)</button>
             </div>
             <select id="selectDefaultQuality" class="dashboard-select" style="display: none;">
               <option value="ask" data-i18n="qualityAsk">Tanya Setiap Unduh</option>
@@ -294,14 +296,16 @@
               <option value="1080p" data-i18n="quality1080p">1080p (Full HD)</option>
               <option value="720p" data-i18n="quality720p">720p (HD)</option>
               <option value="480p" data-i18n="quality480p">480p (Hemat Data)</option>
+              <option value="360p" data-i18n="quality360p">360p (Standar)</option>
+              <option value="270p" data-i18n="quality270p">270p (Paling Kecil)</option>
             </select>
           </div>
 
           <!-- Bottom-Right Tweet Download Button -->
           <div class="setting-item-card">
             <div class="item-text-info">
-              <h3 class="item-title" data-i18n="inTweetTitle">Tombol Unduh di Kanan Bawah Postingan</h3>
-              <p class="item-desc" data-i18n="inTweetDesc">Tampilkan tombol logo unduh di bilah aksi kanan bawah setiap postingan tweet (di samping tombol like, retweet, dan bookmark).</p>
+              <h3 class="item-title" data-i18n="inTweetTitle">Tombol Unduh di Bilah Aksi Bawah</h3>
+              <p class="item-desc" data-i18n="inTweetDesc">Tampilkan tombol unduh di bilah interaksi bawah tweet (di samping like, retweet, dan bookmark). Matikan jika ingin timeline 100% native tanpa tombol tambahan.</p>
             </div>
             <label class="vault-switch">
               <input type="checkbox" id="toggleInTweetBtn" checked>
@@ -310,22 +314,35 @@
           </div>
 
           <!-- Media Corner Badges -->
-          <div class="setting-item-card">
-            <div class="item-text-info">
-              <h3 class="item-title" data-i18n="mediaBadgesTitle">Lencana Unduh di Sudut Media (Corner Badge)</h3>
-              <p class="item-desc" data-i18n="mediaBadgesDesc">Sematkan lencana tombol unduh HD / MP4 / GIF langsung di sudut kanan atas video dan foto tweet.</p>
+          <div class="setting-item-card col-layout">
+            <div class="item-header-row">
+              <div class="item-text-info">
+                <h3 class="item-title" data-i18n="mediaBadgesTitle">Lencana Unduh di Sudut Media (Corner Badge)</h3>
+                <p class="item-desc" data-i18n="mediaBadgesDesc">Sematkan lencana tombol unduh HD / MP4 / GIF langsung di sudut kanan atas video dan foto tweet.</p>
+              </div>
+              <label class="vault-switch">
+                <input type="checkbox" id="toggleMediaBadges" checked>
+                <span class="vault-slider"></span>
+              </label>
             </div>
-            <label class="vault-switch">
-              <input type="checkbox" id="toggleMediaBadges" checked>
-              <span class="vault-slider"></span>
-            </label>
+
+            <!-- Format Filter Pills for Corner Badge -->
+            <div class="badge-filter-row" id="badgeMediaTypesRow" style="margin-top: 10px; display: flex; flex-direction: column; gap: 8px;">
+              <span style="font-size: 11.5px; font-weight: 600; color: #8b98a5;" data-i18n="badgeMediaTypesTitle">Tampilkan tombol unduh pada format:</span>
+              <div class="choice-pill-group" id="badgeMediaChoices">
+                <button type="button" class="choice-pill active" data-value="all" data-i18n="badgeFormatAll">Semua Media</button>
+                <button type="button" class="choice-pill active" data-value="video" data-i18n="badgeFormatVideo">Video</button>
+                <button type="button" class="choice-pill active" data-value="gif" data-i18n="badgeFormatGif">GIF</button>
+                <button type="button" class="choice-pill active" data-value="photo" data-i18n="badgeFormatPhoto">Foto / Gambar</button>
+              </div>
+            </div>
           </div>
 
-          <!-- Tweet Header Download All Button (Next to Grok / Caret) -->
+          <!-- Tweet Header Download All Button (Next to Grok / Caret & Quote Tweet) -->
           <div class="setting-item-card">
             <div class="item-text-info">
-              <h3 class="item-title" data-i18n="headerDlAllTitle">Tombol Unduh Semua di Header Tweet</h3>
-              <p class="item-desc" data-i18n="headerDlAllDesc">Tampilkan tombol 'Unduh Semua' di sudut kanan atas postingan (di samping ikon Grok) jika tweet memiliki banyak media.</p>
+              <h3 class="item-title" data-i18n="headerDlAllTitle">Tombol "Unduh Semua" (Download All)</h3>
+              <p class="item-desc" data-i18n="headerDlAllDesc">Tampilkan tombol 'Unduh Semua' di sudut kanan atas postingan dan di kartu Quote Tweet jika memiliki banyak media.</p>
             </div>
             <label class="vault-switch">
               <input type="checkbox" id="toggleHeaderDlAll" checked>
@@ -401,6 +418,7 @@
             <button class="filter-pill" data-filter="video" data-i18n="filterVideo">MP4</button>
             <button class="filter-pill" data-filter="image" data-i18n="filterImage">JPG</button>
             <button class="filter-pill" data-filter="gif" data-i18n="filterGif">GIF</button>
+            <button class="filter-pill" data-filter="audio" data-i18n="filterAudio">MP3</button>
           </div>
 
           <div class="history-actions-row">

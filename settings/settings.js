@@ -63,12 +63,19 @@ document.addEventListener("DOMContentLoaded", () => {
       quality1080p: "1080p (Full HD)",
       quality720p: "720p (HD)",
       quality480p: "480p (Hemat Data)",
-      inTweetTitle: "Tombol Unduh di Kanan Bawah Postingan",
-      inTweetDesc: "Tampilkan tombol logo unduh di bilah aksi kanan bawah setiap postingan tweet (di samping tombol like, retweet, dan bookmark).",
+      quality360p: "360p (Standar)",
+      quality270p: "270p (Paling Kecil)",
+      inTweetTitle: "Tombol Unduh di Bilah Aksi Bawah",
+      inTweetDesc: "Tampilkan tombol unduh di bilah interaksi bawah tweet (di samping like, retweet, dan bookmark). Matikan jika ingin timeline 100% native tanpa tombol tambahan.",
       mediaBadgesTitle: "Lencana Unduh di Sudut Media (Corner Badge)",
       mediaBadgesDesc: "Sematkan lencana tombol unduh HD / MP4 / GIF langsung di sudut kanan atas video dan foto tweet.",
-      headerDlAllTitle: "Tombol Unduh Semua di Header Tweet",
-      headerDlAllDesc: "Tampilkan tombol 'Unduh Semua' di sudut kanan atas postingan (di samping ikon Grok) jika tweet memiliki banyak media.",
+      badgeMediaTypesTitle: "Tampilkan tombol unduh pada format:",
+      badgeFormatAll: "Semua Media",
+      badgeFormatVideo: "Video",
+      badgeFormatGif: "GIF",
+      badgeFormatPhoto: "Foto / Gambar",
+      headerDlAllTitle: "Tombol 'Unduh Semua' (Multi-Media)",
+      headerDlAllDesc: "Tampilkan tombol 'Unduh Semua' di sudut kanan atas postingan dan di kartu Quote Tweet jika memiliki banyak media.",
       shortcutTitle: "Pintasan Papan Ketik (Keyboard shortcut)",
       shortcutDesc: "Tekan huruf <code>D</code> pada keyboard saat kursor berada di tweet untuk langsung memulai unduhan media.",
 
@@ -84,6 +91,7 @@ document.addEventListener("DOMContentLoaded", () => {
       filterVideo: "MP4",
       filterImage: "JPG",
       filterGif: "GIF",
+      filterAudio: "MP3",
       btnClearAll: "Hapus Semua",
       btnClearAllTitle: "Hapus seluruh riwayat unduhan",
       btnExport: "Ekspor",
@@ -186,12 +194,19 @@ document.addEventListener("DOMContentLoaded", () => {
       quality1080p: "1080p (Full HD)",
       quality720p: "720p (HD)",
       quality480p: "480p (Data Saver)",
+      quality360p: "360p (Standard)",
+      quality270p: "270p (Smallest)",
       inTweetTitle: "Bottom-Right Post Download Button",
-      inTweetDesc: "Display download button on the bottom-right action bar of each tweet post (alongside like, repost, and bookmark).",
+      inTweetDesc: "Display download button on the bottom interaction bar of each tweet post (alongside like, repost, and bookmark). Disable for a 100% native timeline.",
       mediaBadgesTitle: "Media Player Corner Badges",
       mediaBadgesDesc: "Embed HD / MP4 / GIF download badges directly on the top-right corner of tweet videos and photos.",
-      headerDlAllTitle: "Tweet Header Download All Button",
-      headerDlAllDesc: "Display 'Download All' button in the top-right corner of the post (next to Grok) on multi-media tweets.",
+      badgeMediaTypesTitle: "Show corner download badges on formats:",
+      badgeFormatAll: "All Media",
+      badgeFormatVideo: "Video",
+      badgeFormatGif: "GIF",
+      badgeFormatPhoto: "Photos / Images",
+      headerDlAllTitle: "'Download All' Button (Multi-Media)",
+      headerDlAllDesc: "Display 'Download All' button in the top-right corner of multi-media tweets and Quote Tweet cards.",
       shortcutTitle: "Keyboard Shortcut",
       shortcutDesc: "Press <code>D</code> on keyboard while hovering over a tweet to immediately download media.",
 
@@ -207,6 +222,7 @@ document.addEventListener("DOMContentLoaded", () => {
       filterVideo: "MP4",
       filterImage: "JPG",
       filterGif: "GIF",
+      filterAudio: "MP3",
       btnClearAll: "Clear All",
       btnClearAllTitle: "Clear all download history",
       btnExport: "Export",
@@ -325,6 +341,7 @@ document.addEventListener("DOMContentLoaded", () => {
     defaultQuality: "native",
     inTweetBtn: true,
     mediaCornerBadges: true,
+    badgeMediaTypes: ["video", "gif", "photo"],
     headerDlAll: true,
     keyboardShortcut: true,
     historyLogging: true
@@ -372,6 +389,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const selectDefaultQuality = document.getElementById("selectDefaultQuality");
   const toggleInTweetBtn = document.getElementById("toggleInTweetBtn");
   const toggleMediaBadges = document.getElementById("toggleMediaBadges");
+  const badgeMediaChoices = document.getElementById("badgeMediaChoices");
+  const badgeMediaTypesRow = document.getElementById("badgeMediaTypesRow");
   const toggleHeaderDlAll = document.getElementById("toggleHeaderDlAll");
   const toggleKeyboardShortcut = document.getElementById("toggleKeyboardShortcut");
 
@@ -511,6 +530,14 @@ document.addEventListener("DOMContentLoaded", () => {
   } else {
     switchTab("general");
   }
+
+  // Listen for hash change when user switches section from popup or content script
+  window.addEventListener("hashchange", () => {
+    const currentHash = window.location.hash.replace("#", "").toLowerCase();
+    if (["general", "features", "history", "about"].includes(currentHash)) {
+      switchTab(currentHash);
+    }
+  });
 
   // ==================== FILENAME PATTERN BUILDER ====================
   function renderPatternBuilder() {
@@ -686,6 +713,16 @@ document.addEventListener("DOMContentLoaded", () => {
     return false;
   }
 
+  function isItemAudio(item) {
+    if (!item) return false;
+    if (item.type === "audio" || item.isAudioOnly || item.quality === "MP3") return true;
+    const fn = (item.filename || "").toLowerCase();
+    if (fn.endsWith(".mp3") || fn.endsWith(".wav")) return true;
+    const ti = (item.title || "").toLowerCase();
+    if (ti.includes("audio") && !ti.includes("video")) return true;
+    return false;
+  }
+
   function renderHistoryTable() {
     if (!historyTableContainer) return;
     historyTableContainer.innerHTML = "";
@@ -716,12 +753,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let filtered = (downloadHistory || []).filter(item => {
       const itemIsGif = isItemGif(item);
+      const itemIsAudio = isItemAudio(item);
       if (currentFilterType === "video") {
-        if (itemIsGif || item.type === "image") return false;
+        if (itemIsGif || itemIsAudio || item.type === "image") return false;
       } else if (currentFilterType === "image") {
         if (item.type !== "image") return false;
       } else if (currentFilterType === "gif") {
         if (!itemIsGif) return false;
+      } else if (currentFilterType === "audio") {
+        if (!itemIsAudio) return false;
       }
       if (query) {
         const titleMatch = (item.title || "").toLowerCase().includes(query);
@@ -739,8 +779,10 @@ document.addEventListener("DOMContentLoaded", () => {
     let vCount = 0;
     let iCount = 0;
     let gCount = 0;
+    let aCount = 0;
     (downloadHistory || []).forEach(it => {
-      if (isItemGif(it)) gCount++;
+      if (isItemAudio(it)) aCount++;
+      else if (isItemGif(it)) gCount++;
       else if (it.type === "image") iCount++;
       else vCount++;
     });
@@ -771,11 +813,15 @@ document.addEventListener("DOMContentLoaded", () => {
       row.className = "history-row";
       row.setAttribute("data-id", item.id);
 
-      const isGif = isItemGif(item);
-      const isImg = !isGif && item.type === "image";
+      const isAudio = isItemAudio(item);
+      const isGif = !isAudio && isItemGif(item);
+      const isImg = !isAudio && !isGif && item.type === "image";
       let badgeClass = "video";
       let badgeLabel = "MP4";
-      if (isGif) {
+      if (isAudio) {
+        badgeClass = "audio";
+        badgeLabel = "MP3";
+      } else if (isGif) {
         badgeClass = "gif";
         badgeLabel = "GIF";
       } else if (isImg) {
@@ -843,11 +889,13 @@ document.addEventListener("DOMContentLoaded", () => {
           : "";
       }
 
-      const fallbackSvgIcon = isGif
-        ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>`
-        : (isImg
-          ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`
-          : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>`);
+      const fallbackSvgIcon = isAudio
+        ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`
+        : (isGif
+          ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>`
+          : (isImg
+            ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>`
+            : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>`));
 
       row.innerHTML = `
         <div class="history-item-main">
@@ -1310,6 +1358,14 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   if (inputSubDirName) {
+    inputSubDirName.addEventListener("input", () => {
+      currentSettings.subDirName = inputSubDirName.value.trim() || "X_Vault_Downloads";
+      saveCurrentSettings();
+    });
+    inputSubDirName.addEventListener("blur", () => {
+      currentSettings.subDirName = inputSubDirName.value.trim() || "X_Vault_Downloads";
+      saveCurrentSettings();
+    });
     inputSubDirName.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         currentSettings.subDirName = inputSubDirName.value.trim() || "X_Vault_Downloads";
@@ -1433,9 +1489,67 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  function updateMediaBadgesRowState(isEnabled) {
+    if (badgeMediaTypesRow) {
+      badgeMediaTypesRow.style.opacity = isEnabled ? "1" : "0.4";
+      badgeMediaTypesRow.style.pointerEvents = isEnabled ? "auto" : "none";
+    }
+  }
+
+  function updateBadgeMediaChoicesUI() {
+    if (!badgeMediaChoices) return;
+    const currentTypes = Array.isArray(currentSettings.badgeMediaTypes)
+      ? currentSettings.badgeMediaTypes
+      : ["video", "gif", "photo"];
+
+    const allPill = badgeMediaChoices.querySelector('[data-value="all"]');
+    const isAll = currentTypes.includes("video") && currentTypes.includes("gif") && currentTypes.includes("photo");
+
+    if (allPill) {
+      allPill.classList.toggle("active", isAll);
+    }
+
+    badgeMediaChoices.querySelectorAll('.choice-pill:not([data-value="all"])').forEach(pill => {
+      const val = pill.getAttribute("data-value");
+      pill.classList.toggle("active", currentTypes.includes(val));
+    });
+  }
+
   if (toggleMediaBadges) {
     toggleMediaBadges.addEventListener("change", () => {
       currentSettings.mediaCornerBadges = toggleMediaBadges.checked;
+      updateMediaBadgesRowState(toggleMediaBadges.checked);
+      saveCurrentSettings();
+    });
+  }
+
+  if (badgeMediaChoices) {
+    badgeMediaChoices.addEventListener("click", (e) => {
+      const pill = e.target.closest(".choice-pill");
+      if (!pill) return;
+      const val = pill.getAttribute("data-value");
+      let currentTypes = Array.isArray(currentSettings.badgeMediaTypes)
+        ? [...currentSettings.badgeMediaTypes]
+        : ["video", "gif", "photo"];
+
+      if (val === "all") {
+        const isAll = currentTypes.includes("video") && currentTypes.includes("gif") && currentTypes.includes("photo");
+        if (isAll) {
+          currentTypes = ["video"];
+        } else {
+          currentTypes = ["video", "gif", "photo"];
+        }
+      } else {
+        if (currentTypes.includes(val)) {
+          currentTypes = currentTypes.filter(t => t !== val);
+          if (currentTypes.length === 0) currentTypes = [val];
+        } else {
+          currentTypes.push(val);
+        }
+      }
+
+      currentSettings.badgeMediaTypes = currentTypes;
+      updateBadgeMediaChoicesUI();
       saveCurrentSettings();
     });
   }
@@ -1504,7 +1618,11 @@ document.addEventListener("DOMContentLoaded", () => {
       if (toggleDownloadThumbnail) toggleDownloadThumbnail.checked = Boolean(currentSettings.downloadThumbnail);
       if (selectDefaultQuality) selectDefaultQuality.value = currentSettings.defaultQuality || "native";
       if (toggleInTweetBtn) toggleInTweetBtn.checked = currentSettings.inTweetBtn !== false;
-      if (toggleMediaBadges) toggleMediaBadges.checked = currentSettings.mediaCornerBadges !== false;
+      if (toggleMediaBadges) {
+        toggleMediaBadges.checked = currentSettings.mediaCornerBadges !== false;
+        updateMediaBadgesRowState(toggleMediaBadges.checked);
+      }
+      updateBadgeMediaChoicesUI();
       if (toggleHeaderDlAll) toggleHeaderDlAll.checked = currentSettings.headerDlAll !== false;
       if (toggleKeyboardShortcut) toggleKeyboardShortcut.checked = currentSettings.keyboardShortcut !== false;
       if (toggleHistoryLogging) toggleHistoryLogging.checked = currentSettings.historyLogging !== false;

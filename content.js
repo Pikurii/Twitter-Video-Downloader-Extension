@@ -281,18 +281,29 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
           }
         }
         if (newVal.inTweetBtn !== undefined) {
-          document.querySelectorAll(".x-tweet-dl-wrapper, .x-tweet-dl-btn, .x-quote-dl-all-wrapper").forEach(el => {
+          document.querySelectorAll(".x-tweet-dl-wrapper, .x-tweet-dl-btn").forEach(el => {
             el.style.display = newVal.inTweetBtn ? "" : "none";
           });
         }
-        if (newVal.mediaCornerBadges !== undefined) {
-          document.querySelectorAll(".x-media-corner-badge, .x-media-dl-all-badge").forEach(el => {
-            el.style.display = newVal.mediaCornerBadges ? "" : "none";
+        if (newVal.headerDlAll !== undefined) {
+          document.querySelectorAll(".x-tweet-header-dl-all-wrapper, .x-quote-dl-all-wrapper").forEach(el => {
+            el.style.display = newVal.headerDlAll ? "" : "none";
           });
         }
-        if (newVal.headerDlAll !== undefined) {
-          document.querySelectorAll(".x-tweet-header-dl-all-wrapper").forEach(el => {
-            el.style.display = newVal.headerDlAll ? "" : "none";
+        if (newVal.mediaCornerBadges !== undefined || newVal.badgeMediaTypes !== undefined) {
+          const badgesEnabled = contentSettings.mediaCornerBadges !== false;
+          const allowedTypes = Array.isArray(contentSettings.badgeMediaTypes) ? contentSettings.badgeMediaTypes : ["video", "gif", "photo"];
+          document.querySelectorAll(".x-media-corner-badge").forEach(badge => {
+            const hasVideo = badge.querySelector(".x-badge-video");
+            const hasGif = badge.querySelector(".x-badge-gif");
+            const hasPhoto = badge.querySelector(".x-badge-photo");
+            let show = badgesEnabled;
+            if (show) {
+              if (hasVideo && !allowedTypes.includes("video")) show = false;
+              if (hasGif && !allowedTypes.includes("gif")) show = false;
+              if (hasPhoto && !allowedTypes.includes("photo")) show = false;
+            }
+            badge.style.display = show ? "" : "none";
           });
         }
         if (newVal.inTweetBtn !== undefined || newVal.mediaCornerBadges !== undefined) {
@@ -1419,7 +1430,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
         e.stopPropagation();
         cleanup();
         try {
-          chrome.runtime.sendMessage({ action: "OPEN_SETTINGS_PAGE" });
+          chrome.runtime.sendMessage({ action: "OPEN_SETTINGS_PAGE", payload: { tabHash: "features" } });
         } catch (e) {}
       });
     }
@@ -1467,6 +1478,259 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
     }, 50);
   }
 
+  // Encode an AudioBuffer into universal 16-bit PCM WAV Blob
+  function encodeAudioBufferToWav(buffer) {
+    const numChannels = buffer.numberOfChannels;
+    const sampleRate = buffer.sampleRate;
+    const bitDepth = 16;
+    let interleaved;
+    if (numChannels === 2) {
+      const left = buffer.getChannelData(0);
+      const right = buffer.getChannelData(1);
+      interleaved = new Float32Array(left.length + right.length);
+      for (let src = 0, dst = 0; src < left.length; src++) {
+        interleaved[dst++] = left[src];
+        interleaved[dst++] = right[src];
+      }
+    } else {
+      interleaved = buffer.getChannelData(0);
+    }
+
+    const dataSize = interleaved.length * 2;
+    const out = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(out);
+
+    function writeStr(offset, str) {
+      for (let i = 0; i < str.length; i++) {
+        view.setUint8(offset + i, str.charCodeAt(i));
+      }
+    }
+
+    writeStr(0, "RIFF");
+    view.setUint32(4, 36 + dataSize, true);
+    writeStr(8, "WAVE");
+    writeStr(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true); // PCM format
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * numChannels * 2, true);
+    view.setUint16(32, numChannels * 2, true);
+    view.setUint16(34, bitDepth, true);
+    writeStr(36, "data");
+    view.setUint32(40, dataSize, true);
+
+    let offset = 44;
+    for (let i = 0; i < interleaved.length; i++, offset += 2) {
+      const s = Math.max(-1, Math.min(1, interleaved[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+
+    return new Blob([view], { type: "audio/wav" });
+  }
+
+  // Extract and download pure audio using Web Audio API + lamejs MP3 encoder (fallback: PCM WAV)
+  async function downloadTweetAudio({
+    videoUrl,
+    outerTweetId,
+    targetTid,
+    targetInfo,
+    thumbUrl,
+    pageUrl,
+    clientReqId,
+    onProgress,
+    onDone
+  }) {
+    // If videoUrl is not provided or is a blob URL, attempt resolving direct stream from background
+    if ((!videoUrl || videoUrl.startsWith("blob:")) && (targetTid || outerTweetId)) {
+      const resolved = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({
+          action: "RESOLVE_TWITTER_MEDIA_URL",
+          payload: { tweetId: targetTid || outerTweetId }
+        }, resolve);
+      });
+      if (resolved?.url) {
+        videoUrl = resolved.url;
+      }
+    }
+
+    if (!videoUrl) {
+      showTwitterToast(currentLang === "en" ? "Media stream not found" : "Aliran media tidak ditemukan");
+      if (onDone) onDone(false);
+      return;
+    }
+
+    const toastMsg = currentLang === "en" ? "Extracting audio without video..." : "Mengekstrak audio tanpa video...";
+    showTwitterToast(toastMsg);
+
+    let audioCtx = null;
+    try {
+      if (onProgress) onProgress(15);
+
+      // 1. Fetch MP4 audio stream (direct fetch with background proxy fallback to bypass CSP/CORS)
+      let arrayBuffer = null;
+      try {
+        const response = await fetch(videoUrl);
+        if (response.ok) {
+          arrayBuffer = await response.arrayBuffer();
+        }
+      } catch (e) {
+        // Direct fetch blocked by page CSP/CORS, fallback to background below
+      }
+
+      if (!arrayBuffer) {
+        const fetchRes = await new Promise((resolve) => {
+          chrome.runtime.sendMessage({
+            action: "FETCH_MEDIA_BUFFER",
+            payload: { url: videoUrl }
+          }, resolve);
+        });
+
+        if (fetchRes?.success && fetchRes.base64) {
+          const binary = atob(fetchRes.base64);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+          }
+          arrayBuffer = bytes.buffer;
+        } else {
+          throw new Error(fetchRes?.error || "Gagal mengunduh media dari server");
+        }
+      }
+
+      if (onProgress) onProgress(45);
+
+      // 2. Decode via native AudioContext
+      const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtxClass) throw new Error("Web Audio API tidak didukung");
+      audioCtx = new AudioCtxClass();
+
+      let audioBuffer = null;
+      try {
+        audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+      } catch (e) {
+        throw new Error("Berkas video tidak memiliki trek audio yang valid");
+      }
+
+      if (!audioBuffer || audioBuffer.numberOfChannels === 0 || audioBuffer.length === 0) {
+        showTwitterToast(currentLang === "en" ? "This video has no audio track" : "Video ini tidak memiliki trek audio");
+        if (onDone) onDone(false);
+        return;
+      }
+
+      if (onProgress) onProgress(70);
+
+      // 3. Encode to real MP3 via lamejs or WAV fallback
+      let audioBlob = null;
+      let ext = "mp3";
+
+      const lame = typeof lamejs !== "undefined" ? lamejs : (window.lamejs || globalThis.lamejs);
+      if (lame && lame.Mp3Encoder) {
+        try {
+          const channels = audioBuffer.numberOfChannels;
+          const sampleRate = audioBuffer.sampleRate;
+          const mp3encoder = new lame.Mp3Encoder(channels, sampleRate, 192);
+
+          const left = audioBuffer.getChannelData(0);
+          const right = channels > 1 ? audioBuffer.getChannelData(1) : null;
+
+          const leftInt16 = new Int16Array(left.length);
+          for (let i = 0; i < left.length; i++) {
+            const s = Math.max(-1, Math.min(1, left[i]));
+            leftInt16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+          }
+
+          let rightInt16 = null;
+          if (right) {
+            rightInt16 = new Int16Array(right.length);
+            for (let i = 0; i < right.length; i++) {
+              const s = Math.max(-1, Math.min(1, right[i]));
+              rightInt16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+            }
+          }
+
+          const mp3Chunks = [];
+          const blockSize = 1152;
+          for (let i = 0; i < leftInt16.length; i += blockSize) {
+            const leftChunk = leftInt16.subarray(i, i + blockSize);
+            let mp3buf;
+            if (channels === 2 && rightInt16) {
+              const rightChunk = rightInt16.subarray(i, i + blockSize);
+              mp3buf = mp3encoder.encodeBuffer(leftChunk, rightChunk);
+            } else {
+              mp3buf = mp3encoder.encodeBuffer(leftChunk);
+            }
+            if (mp3buf && mp3buf.length > 0) {
+              mp3Chunks.push(mp3buf);
+            }
+          }
+
+          const flushBuf = mp3encoder.flush();
+          if (flushBuf && flushBuf.length > 0) {
+            mp3Chunks.push(flushBuf);
+          }
+
+          audioBlob = new Blob(mp3Chunks, { type: "audio/mp3" });
+          ext = "mp3";
+        } catch (encErr) {
+          console.warn("[X-Vault] MP3 encoder fallback to WAV:", encErr);
+          audioBlob = null;
+        }
+      }
+
+      if (!audioBlob) {
+        audioBlob = encodeAudioBufferToWav(audioBuffer);
+        ext = "wav";
+      }
+
+      if (onProgress) onProgress(90);
+
+      const blobUrl = URL.createObjectURL(audioBlob);
+
+      chrome.runtime.sendMessage({
+        action: "DOWNLOAD_AUDIO_BLOB",
+        payload: {
+          blobUrl,
+          tweetId: outerTweetId || targetTid,
+          outerTweetId: outerTweetId || targetTid,
+          author: targetInfo?.author || "X User",
+          screenName: targetInfo?.screenName || "",
+          tweetText: targetInfo?.text || "Audio",
+          tweetTime: targetInfo?.tweetTime || "",
+          tweetIsoDate: targetInfo?.tweetIsoDate || "",
+          thumbnail: thumbUrl || null,
+          ext: ext,
+          pageUrl,
+          clientReqId
+        }
+      }, (res) => {
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 15000);
+        if (res?.success) {
+          if (onProgress) onProgress(100);
+          if (onDone) onDone(true);
+        } else {
+          // Direct anchor click fallback
+          const a = document.createElement("a");
+          a.href = blobUrl;
+          a.download = res?.filename || `Audio_${outerTweetId || Date.now()}.${ext}`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          if (onProgress) onProgress(100);
+          if (onDone) onDone(true);
+        }
+      });
+    } catch (err) {
+      console.error("[X-Vault] Audio extraction error:", err);
+      showTwitterToast(err.message || (currentLang === "en" ? "Failed to extract audio" : "Gagal mengekstrak audio"));
+      if (onDone) onDone(false);
+    } finally {
+      if (audioCtx && audioCtx.state !== "closed") {
+        try { audioCtx.close(); } catch (e) {}
+      }
+    }
+  }
+
   // Live Video Quality Selector Popover ("Ask Every Time" and Right-Click Quality Chooser)
   let activeQualityModal = null;
 
@@ -1505,29 +1769,79 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
         allTweetIds: [targetTweetId, outerTweetId, quotedTweetId].filter(Boolean)
       }
     }, (res) => {
-      const formats = (Array.isArray(res?.formats) ? res.formats : []).filter(f => Boolean(f.url));
+      const rawFormats = Array.isArray(res?.formats) ? res.formats : [];
+      const defaultUrl = res?.defaultUrl || directMediaUrl || null;
+
+      // Filter strictly for playable MP4 video formats (exclude HLS m3u8, MKV duplicates, and audio duplicates)
+      const mp4Formats = rawFormats.filter(f => {
+        if (!f || !f.url || f.url.includes(".m3u8")) return false;
+        if (f.format === "HLS" || f.format === "MKV" || f.format === "AUDIO") return false;
+        if (f.quality === "MP3" || f.resolution === "Adaptif" || f.resolution === "Audio MP3") return false;
+        return true;
+      });
+
+      // Deduplicate by URL
+      const seenUrls = new Set();
+      const cleanFormats = [];
+      for (const f of mp4Formats) {
+        if (!seenUrls.has(f.url)) {
+          seenUrls.add(f.url);
+          cleanFormats.push(f);
+        }
+      }
+
+      function getFormatDim(f) {
+        if (f.resolution && f.resolution.includes("x")) {
+          const parts = f.resolution.split("x").map(n => parseInt(n, 10)).filter(Boolean);
+          if (parts.length === 2) return Math.min(parts[0], parts[1]);
+        }
+        const qNum = parseInt((f.quality || "").replace(/\D/g, ""), 10);
+        if (qNum > 0) return qNum;
+        return f.bitrateRaw || 0;
+      }
 
       let cardsHtml = "";
-      if (formats.length > 0) {
-        formats.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+      if (cleanFormats.length > 0) {
+        cleanFormats.sort((a, b) => {
+          const aDim = getFormatDim(a);
+          const bDim = getFormatDim(b);
+          if (bDim !== aDim) return bDim - aDim;
+          return (b.bitrateRaw || 0) - (a.bitrateRaw || 0);
+        });
 
-        formats.forEach((f, idx) => {
-          let qLabel = f.quality || "HD";
-          if (!qLabel.toLowerCase().includes("p") && f.resolution) {
-            const h = f.resolution.split("x")[1];
-            if (h) qLabel = `${h}p`;
-          }
-          let resDesc = f.resolution ? `${f.resolution}` : "";
+        cleanFormats.forEach((f, idx) => {
+          let dim = getFormatDim(f);
+          let qLabel = dim ? `${dim}p` : (f.quality || "HD");
+          if (dim >= 2160) qLabel = "4K";
+          else if (dim >= 1440) qLabel = "1440p";
+          else if (dim >= 1080) qLabel = "1080p";
+          else if (dim >= 720) qLabel = "720p";
+          else if (dim >= 480) qLabel = "480p";
+          else if (dim >= 360) qLabel = "360p";
+          else if (dim > 0 && dim <= 270) qLabel = "270p";
+
+          let resDesc = f.resolution && f.resolution.includes("x") ? f.resolution : "";
+          let bitStr = "";
           if (f.bitrate) {
-            const mbps = (f.bitrate / 1000000).toFixed(1);
-            resDesc += resDesc ? ` · ~${mbps} Mbps` : `~${mbps} Mbps`;
+            if (typeof f.bitrate === "string" && f.bitrate.trim() && !f.bitrate.includes("NaN")) {
+              bitStr = f.bitrate.trim();
+            } else if (typeof f.bitrate === "number" && f.bitrate > 0) {
+              bitStr = `${(f.bitrate / 1000000).toFixed(1)} Mbps`;
+            }
+          } else if (f.bitrateRaw && f.bitrateRaw > 0) {
+            bitStr = `${(f.bitrateRaw / 1000000).toFixed(1)} Mbps`;
           }
+
+          if (bitStr) {
+            resDesc += resDesc ? ` · ~${bitStr}` : `~${bitStr}`;
+          }
+
           if (idx === 0) {
             resDesc += isEn ? " (Highest)" : " (Tertinggi)";
           }
 
           let tagClass = "tag-mp4";
-          if (qLabel.includes("1080")) tagClass = "tag-orig";
+          if (qLabel.includes("1080") || qLabel.includes("1440") || qLabel.includes("4K")) tagClass = "tag-orig";
           else if (qLabel.includes("720")) tagClass = "tag-med";
           else if (qLabel.includes("480") || qLabel.includes("360")) tagClass = "tag-sm";
 
@@ -1543,14 +1857,14 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
         });
       } else {
         cardsHtml = `
-          <div class="x-gif-picker-card" data-quality="native" data-url="${encodeURIComponent(directMediaUrl || "")}">
+          <div class="x-gif-picker-card" data-quality="native" data-url="${encodeURIComponent(defaultUrl || directMediaUrl || "")}">
             <div class="x-gif-card-content">
               <div class="x-gif-card-title">${isEn ? "Native High Quality" : "Kualitas Asli Terbaik"} ★</div>
               <div class="x-gif-card-desc">${isEn ? "Original stream from tweet" : "Resolusi tertinggi dari tweet"}</div>
             </div>
             <span class="x-gif-card-tag tag-orig">MAX</span>
           </div>
-          <div class="x-gif-picker-card" data-quality="720p" data-url="${encodeURIComponent(directMediaUrl || "")}">
+          <div class="x-gif-picker-card" data-quality="720p" data-url="${encodeURIComponent(defaultUrl || directMediaUrl || "")}">
             <div class="x-gif-card-content">
               <div class="x-gif-card-title">720p HD</div>
               <div class="x-gif-card-desc">${isEn ? "Balanced resolution" : "Kualitas seimbang"}</div>
@@ -1560,9 +1874,10 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
         `;
       }
 
-      // Audio Only Option
+      // Audio Only Option (Uses lowest resolution variant to minimize download time & memory)
+      const audioSourceUrl = (cleanFormats.length > 0 ? cleanFormats[cleanFormats.length - 1].url : null) || defaultUrl || directMediaUrl || "";
       cardsHtml += `
-        <div class="x-gif-picker-card" data-audio="true" data-url="${encodeURIComponent(directMediaUrl || "")}" style="margin-top: 6px; border-style: dashed;">
+        <div class="x-gif-picker-card" data-quality="MP3" data-audio="true" data-url="${encodeURIComponent(audioSourceUrl)}" style="margin-top: 6px; border-style: dashed;">
           <div class="x-gif-card-content">
             <div class="x-gif-card-title">${i18n.audioTitle}</div>
             <div class="x-gif-card-desc">${i18n.audioDesc}</div>
@@ -1654,7 +1969,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
           e.stopPropagation();
           cleanup();
           try {
-            chrome.runtime.sendMessage({ action: "OPEN_SETTINGS_PAGE" });
+            chrome.runtime.sendMessage({ action: "OPEN_SETTINGS_PAGE", payload: { tabHash: "features" } });
           } catch (e) {}
         });
       }
@@ -2014,9 +2329,16 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
           clientReqId: clientReqId
         }
       }, (res) => {
-        if (res?.downloadId && clientReqId) {
+        if (!res?.success && clientReqId) {
           const tracker = activeDownloadTrackers.get(clientReqId);
-          if (tracker) activeDownloadTrackers.set(res.downloadId, tracker);
+          if (tracker && tracker.onError) tracker.onError("Failed to initiate image download");
+        } else if (res?.downloadId && clientReqId) {
+          const tracker = activeDownloadTrackers.get(clientReqId);
+          if (tracker) {
+            activeDownloadTrackers.set(res.downloadId, tracker);
+            activeDownloadTrackers.set(Number(res.downloadId), tracker);
+            activeDownloadTrackers.set(String(res.downloadId), tracker);
+          }
         }
       });
     } else if (item.type === "video") {
@@ -2041,9 +2363,69 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
           clientReqId: clientReqId
         }
       }, (res) => {
-        if (res?.downloadId && clientReqId) {
+        if (!res?.success) {
+          // If video was not yet cached in background, query direct URL
+          if (targetTid) {
+            chrome.runtime.sendMessage({
+              action: "GET_DIRECT_MEDIA_URL",
+              payload: {
+                twVideoId: item.twVideoId,
+                tweetId: targetTid,
+                allTweetIds: [item.targetTweetId, targetTid].filter(Boolean)
+              }
+            }, (directRes) => {
+              if (directRes?.url) {
+                chrome.runtime.sendMessage({
+                  action: "DOWNLOAD_TWITTER_TWEET",
+                  payload: {
+                    twVideoId: item.twVideoId,
+                    tweetId: item.targetTweetId || targetTid,
+                    outerTweetId: item.outerTweetId || targetTid,
+                    allTweetIds: [item.targetTweetId, targetTid].filter(Boolean),
+                    author: targetInfo.author,
+                    screenName: targetInfo.screenName,
+                    tweetText: targetInfo.text,
+                    tweetTime: targetInfo.tweetTime,
+                    tweetIsoDate: targetInfo.tweetIsoDate,
+                    thumbnail: thumbUrl,
+                    isQuoteTweet: Boolean(item.isQuote),
+                    isGif: false,
+                    directMediaUrl: directRes.url,
+                    pageUrl: pageUrl,
+                    clientReqId: clientReqId
+                  }
+                }, (retryRes) => {
+                  if (retryRes?.downloadId && clientReqId) {
+                    const tracker = activeDownloadTrackers.get(clientReqId);
+                    if (tracker) {
+                      activeDownloadTrackers.set(retryRes.downloadId, tracker);
+                      activeDownloadTrackers.set(Number(retryRes.downloadId), tracker);
+                      activeDownloadTrackers.set(String(retryRes.downloadId), tracker);
+                    }
+                  } else if (clientReqId) {
+                    const tracker = activeDownloadTrackers.get(clientReqId);
+                    if (tracker && tracker.onError) tracker.onError();
+                  }
+                });
+              } else {
+                showTwitterToast(currentLang === "en" ? "Video link ready when played" : "Tautan video siap saat video diputar");
+                if (clientReqId) {
+                  const tracker = activeDownloadTrackers.get(clientReqId);
+                  if (tracker && tracker.onError) tracker.onError();
+                }
+              }
+            });
+          } else if (clientReqId) {
+            const tracker = activeDownloadTrackers.get(clientReqId);
+            if (tracker && tracker.onError) tracker.onError();
+          }
+        } else if (res?.downloadId && clientReqId) {
           const tracker = activeDownloadTrackers.get(clientReqId);
-          if (tracker) activeDownloadTrackers.set(res.downloadId, tracker);
+          if (tracker) {
+            activeDownloadTrackers.set(res.downloadId, tracker);
+            activeDownloadTrackers.set(Number(res.downloadId), tracker);
+            activeDownloadTrackers.set(String(res.downloadId), tracker);
+          }
         }
       });
     } else if (item.type === "gif") {
@@ -2067,9 +2449,16 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
           clientReqId: clientReqId
         }
       }, (res) => {
-        if (res?.downloadId && clientReqId) {
+        if (!res?.success && clientReqId) {
           const tracker = activeDownloadTrackers.get(clientReqId);
-          if (tracker) activeDownloadTrackers.set(res.downloadId, tracker);
+          if (tracker && tracker.onError) tracker.onError("Failed to initiate GIF download");
+        } else if (res?.downloadId && clientReqId) {
+          const tracker = activeDownloadTrackers.get(clientReqId);
+          if (tracker) {
+            activeDownloadTrackers.set(res.downloadId, tracker);
+            activeDownloadTrackers.set(Number(res.downloadId), tracker);
+            activeDownloadTrackers.set(String(res.downloadId), tracker);
+          }
         }
       });
     }
@@ -2099,6 +2488,13 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
 
     const totalCount = mediaList.length;
     let completedCount = 0;
+    let isFinished = false;
+
+    const finish = (success) => {
+      if (isFinished) return;
+      isFinished = true;
+      if (onDone) onDone(success);
+    };
 
     mediaList.forEach((item, idx) => {
       const itemReqId = "req_batch_" + Date.now() + "_" + idx + "_" + Math.random().toString(36).substring(2, 6);
@@ -2114,14 +2510,14 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
           if (onProgress) {
             onProgress({ completedCount, totalCount, currentItemIdx: idx, itemPercent: 100 });
           }
-          if (completedCount >= totalCount && onDone) {
-            onDone(true);
+          if (completedCount >= totalCount) {
+            finish(true);
           }
         },
         onError: () => {
           completedCount++;
-          if (completedCount >= totalCount && onDone) {
-            onDone(completedCount > 0);
+          if (completedCount >= totalCount) {
+            finish(completedCount > 0);
           }
         }
       });
@@ -2130,6 +2526,11 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
         downloadMediaItem(item, targetTid, targetInfo, pageUrl, itemReqId);
       }, idx * 280);
     });
+
+    // Safety watchdog: ensure onDone is always called even if browser events miss a callback
+    setTimeout(() => {
+      finish(completedCount > 0);
+    }, 4500 + totalCount * 1200);
   }
 
   // Inject clean media hover styles (hides corner badges & download-all badges until mouse hover)
@@ -2565,8 +2966,8 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
 
     btnWrap.appendChild(btn);
 
-    // Only hide if both inTweetBtn and mediaCornerBadges are disabled
-    if (contentSettings.inTweetBtn === false && contentSettings.mediaCornerBadges === false) {
+    // Only hide if headerDlAll is disabled
+    if (contentSettings.headerDlAll === false) {
       btnWrap.style.display = "none";
     }
 
@@ -2576,31 +2977,24 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
     quoteBox.appendChild(btnWrap);
   }
 
-  // Helper to reliably find Grok button in tweet header
-  function findGrokButton(article, caret) {
+  // Helper to reliably find Grok or actions anchor in tweet header
+  function findHeaderActionAnchor(article, caret) {
     if (!article) return null;
 
     // 1. Check aria-label / testid / href matches (language-independent patterns)
     const directGrok = article.querySelector(
-      '[aria-label*="grok" i], [data-testid*="grok" i], a[href*="/i/grok"], [role="button"][aria-label*="grok" i]'
+      '[aria-label*="grok" i], [data-testid*="grok" i], a[href*="/i/grok"], [role="button"][aria-label*="grok" i], [aria-label*="jelaskan" i], [aria-label*="explain" i]'
     );
-    if (directGrok) return directGrok.closest('button, a, [role="button"]') || directGrok;
+    const caretButton = caret ? (caret.closest('button, [role="button"]') || caret) : null;
+
+    let targetAnchor = null;
+    if (directGrok) {
+      targetAnchor = directGrok.closest('button, a, [role="button"]') || directGrok;
+    }
 
     // 2. Structural locator: Sibling inside the same top-right actions group as caret
-    if (caret) {
-      const caretButton = caret.closest('button, [role="button"]') || caret;
-      const parentGroup = caretButton.parentElement;
-      if (parentGroup) {
-        const siblings = Array.from(parentGroup.children);
-        for (const s of siblings) {
-          if (s === caretButton || s.contains(caretButton)) continue;
-          if (s.classList?.contains("x-tweet-header-dl-all-wrapper")) continue;
-          if (s.querySelector?.('[data-testid="User-Name"], [data-testid="tweetText"]')) continue;
-          return s;
-        }
-      }
-
-      // 3. Previous sibling of caretButton
+    if (!targetAnchor && caretButton) {
+      // 2a. Direct sibling of caretButton
       let prev = caretButton.previousElementSibling;
       while (prev) {
         if (prev.classList?.contains("x-tweet-header-dl-all-wrapper")) {
@@ -2608,13 +3002,62 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
           continue;
         }
         if (!prev.querySelector?.('[data-testid="User-Name"], [data-testid="tweetText"]')) {
-          return prev;
+          targetAnchor = prev;
+          break;
         }
         break;
       }
+
+      // 2b. Wrapper sibling: caretButton is inside a wrapper (e.g. <div><button ...caret></div>)
+      if (!targetAnchor) {
+        const caretWrap = caretButton.parentElement;
+        if (caretWrap && caretWrap !== article && caretWrap.parentElement) {
+          let prevWrap = caretWrap.previousElementSibling;
+          while (prevWrap) {
+            if (prevWrap.classList?.contains("x-tweet-header-dl-all-wrapper")) {
+              prevWrap = prevWrap.previousElementSibling;
+              continue;
+            }
+            if (!prevWrap.querySelector?.('[data-testid="User-Name"], [data-testid="tweetText"]')) {
+              targetAnchor = prevWrap;
+              break;
+            }
+            break;
+          }
+        }
+      }
+
+      // Fallback: use caretButton itself
+      if (!targetAnchor) {
+        targetAnchor = caretButton;
+      }
     }
 
-    return null;
+    // Fallback: any button or menu in the top header row
+    if (!targetAnchor) {
+      const userName = article.querySelector('[data-testid="User-Name"]');
+      if (userName && userName.parentElement) {
+        const topRowButtons = Array.from(userName.parentElement.querySelectorAll('button, [role="button"]'))
+          .filter(b => !userName.contains(b));
+        if (topRowButtons.length > 0) {
+          targetAnchor = topRowButtons[0];
+        }
+      }
+    }
+
+    if (!targetAnchor) return null;
+
+    // Promote anchor to wrapper if anchor is inside a single-element icon wrapper (e.g. 34x34px div)
+    // to prevent squeezing our pill into the tiny icon circle
+    if (targetAnchor.parentElement && targetAnchor.parentElement.parentElement) {
+      const parent = targetAnchor.parentElement;
+      const validChildren = Array.from(parent.children).filter(c => !c.classList?.contains("x-tweet-header-dl-all-wrapper"));
+      if (validChildren.length <= 1 && !parent.querySelector?.('[data-testid="User-Name"]')) {
+        targetAnchor = parent;
+      }
+    }
+
+    return targetAnchor;
   }
 
   // Inject "Download All" button into Tweet Header (STRICTLY to the left of Grok / Caret)
@@ -2625,11 +3068,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
     const count = mediaList.length;
 
     const caret = article.querySelector('[data-testid="caret"]');
-    const caretButton = caret ? (caret.closest('button, [role="button"]') || caret) : null;
-    const grokBtn = findGrokButton(article, caret);
-
-    // TARGET ANCHOR: Must STRICTLY be Grok if Grok exists, otherwise Caret!
-    const targetAnchor = grokBtn || caretButton;
+    const targetAnchor = findHeaderActionAnchor(article, caret);
 
     if (btnWrap) {
       const countSpan = btnWrap.querySelector(".x-header-dl-all-count");
@@ -2637,8 +3076,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
       btnWrap.style.display = contentSettings.headerDlAll !== false ? "inline-flex" : "none";
 
       // Self-healing / reposition check:
-      // If Grok exists and our button is currently to the RIGHT of Grok (or between Grok & Caret),
-      // immediately move our button to the LEFT of Grok!
+      // If anchor exists and our button is not immediately to the left of it, reposition:
       if (targetAnchor && targetAnchor.parentElement) {
         if (btnWrap.nextElementSibling !== targetAnchor) {
           targetAnchor.parentElement.insertBefore(btnWrap, targetAnchor);
@@ -2778,6 +3216,367 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
     targetAnchor.parentElement.insertBefore(btnWrap, targetAnchor);
   }
 
+  // Dynamic, robust click handler for the bottom-right tweet action bar download button
+  function handleTweetActionBarDownloadClick(btn, article, quoteBox) {
+    if (!btn || !article) return;
+    if (btn.dataset.downloading || btn.dataset.saved) return;
+
+    btn.dataset.downloading = "true";
+    btn.style.color = "rgb(29, 155, 240)";
+    btn.innerHTML = `
+      <svg class="x-vault-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" style="pointer-events: none;">
+        <circle cx="12" cy="12" r="9" stroke="rgba(29, 155, 240, 0.25)" stroke-width="2.5"/>
+        <path d="M12 3a9 9 0 0 1 9 9" stroke="#1d9bf0" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+    `;
+
+    // 1. Live extraction of tweet metadata
+    const outerInfo = extractTweetInfo(article) || btn._latestTweetInfo || { author: "", screenName: "", text: "" };
+    const timeLinks = Array.from(article.querySelectorAll('time')).map(t => t.closest('a[href*="/status/"]')).filter(Boolean);
+    const outerTimeLink = timeLinks[0];
+    let outerTweetId = outerTimeLink?.href?.match(/\/status\/(\d+)/)?.[1] ||
+                       article.querySelector('a[href*="/status/"]')?.href?.match(/\/status\/(\d+)/)?.[1] ||
+                       btn._latestTweetId ||
+                       window.location.pathname.match(/\/status\/(\d+)/)?.[1] || null;
+    const pageUrl = outerTimeLink?.href || btn._latestPageUrl || window.location.href;
+
+    const allStatusLinks = Array.from(article.querySelectorAll('a[href*="/status/"]'));
+    const allTweetIds = Array.from(new Set([
+      outerTweetId,
+      btn._latestTweetId,
+      ...allStatusLinks.map(a => a.href.match(/\/status\/(\d+)/)?.[1])
+    ].filter(Boolean)));
+
+    // Helper to mark UI success or reset
+    const markSuccess = (count) => {
+      delete btn.dataset.downloading;
+      btn.dataset.saved = "true";
+      btn.style.color = "#00ba7c";
+      btn.style.backgroundColor = "rgba(0, 186, 124, 0.1)";
+      btn.innerHTML = `
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="pointer-events: none;">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      `;
+      setTimeout(() => {
+        delete btn.dataset.saved;
+        btn.style.backgroundColor = "transparent";
+        btn.style.color = "rgb(113, 118, 123)";
+        updateTweetDlButtonHtml(btn, count);
+      }, 2500);
+    };
+
+    const markReset = (count) => {
+      delete btn.dataset.downloading;
+      delete btn.dataset.saved;
+      btn.style.backgroundColor = "transparent";
+      btn.style.color = "rgb(113, 118, 123)";
+      updateTweetDlButtonHtml(btn, count);
+    };
+
+    // 2. Resolve media: prioritize cached outer media list from recent reliable scan
+    let mediaList = [];
+    if (Array.isArray(btn._latestOuterMedia) && btn._latestOuterMedia.length > 0) {
+      mediaList = [...btn._latestOuterMedia];
+    }
+
+    if (mediaList.length === 0) {
+      const isElementInQuote = (el) => (quoteBox && el ? quoteBox.contains(el) : false);
+
+      const allVideos = Array.from(article.querySelectorAll("video"));
+      const allPlayers = Array.from(article.querySelectorAll('div[data-testid="videoPlayer"], div[data-testid="videoComponent"]'));
+
+      const videoCards = Array.from(article.querySelectorAll('img[src*="video_thumb"], img[src*="amplify_video_thumb"], img[src*="ext_tw_video_thumb"]')).map(img => {
+        return img.closest('div[data-testid*="card.layout"], div[data-testid="tweetPhoto"], div[role="link"]:not([role="group"])') || img.parentElement;
+      }).filter(Boolean);
+
+      const candidateBadges = Array.from(article.querySelectorAll('div[data-testid*="card"], div[data-testid="tweetPhoto"], div[role="link"]:not([role="group"])'));
+      candidateBadges.forEach(wrap => {
+        if (videoCards.includes(wrap)) return;
+        const hasDuration = Array.from(wrap.querySelectorAll("span, div")).some(el => {
+          return /^\s*\d+:\d{2}(?::\d{2})?\s*$/.test(el.textContent || "") && el.children.length === 0;
+        });
+        if (hasDuration) videoCards.push(wrap);
+      });
+
+      videoCards.forEach(card => {
+        if (!allPlayers.some(p => p === card || p.contains(card) || card.contains(p))) {
+          allPlayers.push(card);
+        }
+      });
+
+      const outerVideos = allVideos.filter(v => !isElementInQuote(v));
+      const outerPlayers = allPlayers.filter(p => !isElementInQuote(p));
+
+      const outerVideoTargets = [];
+      outerPlayers.forEach(p => {
+        if (!outerVideoTargets.some(e => e === p || e.contains(p) || p.contains(e))) outerVideoTargets.push(p);
+      });
+      outerVideos.forEach(v => {
+        const p = v.closest('div[data-testid="videoPlayer"], div[data-testid="videoComponent"]') || v.parentElement;
+        if (!outerVideoTargets.some(e => e === p || e.contains(p) || p.contains(e))) outerVideoTargets.push(p);
+      });
+
+      const isRealPhotoWrap = (wrap) => {
+        if (!wrap) return false;
+        if (wrap.querySelector('video, div[data-testid="videoPlayer"], div[data-testid="videoComponent"]')) return false;
+        if (videoCards.some(vc => vc === wrap || vc.contains(wrap) || wrap.contains(vc))) return false;
+        const img = wrap.querySelector("img");
+        if (!img || !img.src) return false;
+        if (img.src.includes("video_thumb") || img.src.includes("amplify_video_thumb") || img.src.includes("tweet_video") || img.src.includes("ext_tw_video_thumb")) return false;
+        const hasDuration = Array.from(wrap.querySelectorAll("span, div")).some(el => /^\s*\d+:\d{2}(?::\d{2})?\s*$/.test(el.textContent || "") && el.children.length === 0);
+        if (hasDuration) return false;
+        return img.src.includes("pbs.twimg.com/media/") || img.src.includes("pbs.twimg.com");
+      };
+
+      const photoContainers = Array.from(article.querySelectorAll('div[data-testid="tweetPhoto"]')).filter(isRealPhotoWrap);
+      const outerPhotoContainers = photoContainers.filter(p => !isElementInQuote(p));
+
+      outerPhotoContainers.forEach((pWrap, pIdx) => {
+        const img = pWrap.querySelector("img");
+        if (img && img.src) {
+          mediaList.push({
+            type: "photo",
+            url: getDirectPhotoUrl(img.src) || img.src,
+            index: pIdx
+          });
+        }
+      });
+
+      outerVideoTargets.forEach(vContainer => {
+        const vEl = vContainer.querySelector("video") || (vContainer.tagName === "VIDEO" ? vContainer : null);
+        const isGif = Boolean(isTwitterGif(vContainer, vEl, outerTweetId));
+        const twVidId = extractTwVideoId(vContainer);
+        let directMediaUrl = isGif ? resolveGifDirectUrl(vContainer, vEl, outerTweetId) : (vEl?.src && !vEl.src.startsWith("blob:") ? vEl.src : null);
+        mediaList.push({
+          type: isGif ? "gif" : "video",
+          twVideoId: twVidId,
+          targetTweetId: outerTweetId,
+          outerTweetId: outerTweetId,
+          targetVideoEl: vContainer,
+          directMediaUrl: directMediaUrl,
+          isQuote: false
+        });
+      });
+    }
+
+    // Secondary fallback: query photos or videos directly in article
+    if (mediaList.length === 0) {
+      const directImgs = Array.from(article.querySelectorAll('div[data-testid="tweetPhoto"] img, img[src*="pbs.twimg.com/media"]'));
+      directImgs.forEach((img, idx) => {
+        if (img && img.src && !img.src.includes("profile_images") && !img.src.includes("video_thumb")) {
+          mediaList.push({
+            type: "photo",
+            url: getDirectPhotoUrl(img.src) || img.src,
+            index: idx
+          });
+        }
+      });
+    }
+
+    if (mediaList.length === 0) {
+      markReset(0);
+      showTwitterToast(currentLang === "en" ? "No media found in tweet" : "Tidak ada media ditemukan");
+      return;
+    }
+
+    // Single Video handling (respects 'ask' quality setting)
+    if (mediaList.length === 1 && mediaList[0].type === "video") {
+      const vItem = mediaList[0];
+      const startVideoDl = (chosenQuality, formatUrl = null, isAudio = false) => {
+        const clientReqId = "req_act_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
+        registerDownloadTracker(clientReqId, {
+          onComplete: () => markSuccess(1),
+          onError: () => markReset(1)
+        });
+
+        const thumbUrl = vItem.targetVideoEl?.querySelector?.("video")?.poster || 
+                         vItem.targetVideoEl?.querySelector?.('img[src*="video_thumb"], img[src*="amplify_video_thumb"]')?.src || null;
+
+        chrome.runtime.sendMessage({
+          action: "DOWNLOAD_TWITTER_TWEET",
+          payload: {
+            twVideoId: vItem.twVideoId,
+            tweetId: outerTweetId,
+            outerTweetId: outerTweetId,
+            allTweetIds: allTweetIds,
+            author: outerInfo.author,
+            screenName: outerInfo.screenName,
+            tweetText: outerInfo.text,
+            tweetTime: outerInfo.tweetTime,
+            tweetIsoDate: outerInfo.tweetIsoDate,
+            thumbnail: thumbUrl,
+            isQuoteTweet: false,
+            isGif: false,
+            directMediaUrl: vItem.directMediaUrl,
+            targetQuality: chosenQuality,
+            targetFormatUrl: formatUrl,
+            isAudioOnly: isAudio,
+            pageUrl,
+            clientReqId
+          }
+        }, (res) => {
+          if (res?.success) {
+            if (res.downloadId) {
+              const tracker = activeDownloadTrackers.get(clientReqId);
+              if (tracker) {
+                activeDownloadTrackers.set(res.downloadId, tracker);
+                activeDownloadTrackers.set(Number(res.downloadId), tracker);
+                activeDownloadTrackers.set(String(res.downloadId), tracker);
+              }
+            }
+            setTimeout(() => {
+              if (btn.dataset.downloading) markSuccess(1);
+            }, 3500);
+          } else {
+            // Fallback: Query direct stream URL if background didn't have it cached
+            chrome.runtime.sendMessage({
+              action: "GET_DIRECT_MEDIA_URL",
+              payload: {
+                twVideoId: vItem.twVideoId,
+                tweetId: outerTweetId,
+                allTweetIds: allTweetIds
+              }
+            }, (directRes) => {
+              if (directRes?.url) {
+                chrome.runtime.sendMessage({
+                  action: "DOWNLOAD_TWITTER_TWEET",
+                  payload: {
+                    twVideoId: vItem.twVideoId,
+                    tweetId: outerTweetId,
+                    outerTweetId: outerTweetId,
+                    allTweetIds: allTweetIds,
+                    author: outerInfo.author,
+                    screenName: outerInfo.screenName,
+                    tweetText: outerInfo.text,
+                    thumbnail: thumbUrl,
+                    isQuoteTweet: false,
+                    isGif: false,
+                    directMediaUrl: formatUrl || directRes.url,
+                    targetQuality: chosenQuality,
+                    targetFormatUrl: formatUrl,
+                    isAudioOnly: isAudio,
+                    pageUrl,
+                    clientReqId
+                  }
+                }, (retryRes) => {
+                  if (retryRes?.success) {
+                    if (retryRes.downloadId) {
+                      const tracker = activeDownloadTrackers.get(clientReqId);
+                      if (tracker) {
+                        activeDownloadTrackers.set(retryRes.downloadId, tracker);
+                        activeDownloadTrackers.set(Number(retryRes.downloadId), tracker);
+                        activeDownloadTrackers.set(String(retryRes.downloadId), tracker);
+                      }
+                    }
+                    setTimeout(() => {
+                      if (btn.dataset.downloading) markSuccess(1);
+                    }, 3500);
+                  } else {
+                    markReset(1);
+                    showTwitterToast(currentLang === "en" ? "Media stream ready when played" : "Tautan video siap saat video diputar");
+                  }
+                });
+              } else {
+                markReset(1);
+                showTwitterToast(currentLang === "en" ? "Media stream ready when played" : "Tautan video siap saat video diputar");
+              }
+            });
+          }
+        });
+      };
+
+      if (contentSettings.defaultQuality === "ask") {
+        showVideoQualityModal({
+          anchorEl: btn,
+          twVideoId: vItem.twVideoId,
+          targetTweetId: outerTweetId,
+          outerTweetId: outerTweetId,
+          directMediaUrl: vItem.directMediaUrl,
+          onSelect: (chosen) => {
+            if (!chosen) {
+              markReset(1);
+              return;
+            }
+            if (chosen.isAudioOnly) {
+              const clientReqId = "req_act_audio_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
+              registerDownloadTracker(clientReqId, {
+                onComplete: () => markSuccess(1),
+                onError: () => markReset(1)
+              });
+              btn.dataset.downloading = "true";
+              btn.innerHTML = `
+                <svg class="x-vault-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" style="pointer-events: none;">
+                  <circle cx="12" cy="12" r="9" stroke="rgba(29, 155, 240, 0.25)" stroke-width="2.5"/>
+                  <path d="M12 3a9 9 0 0 1 9 9" stroke="#1d9bf0" stroke-width="2.5" stroke-linecap="round"/>
+                </svg>
+                <span class="x-tweet-dl-count" style="font-size: 11px; font-weight: 700; color: #1d9bf0; pointer-events: none;">MP3</span>
+              `;
+              const thumbUrl = vItem.targetVideoEl?.querySelector?.("video")?.poster || 
+                               vItem.targetVideoEl?.querySelector?.('img[src*="video_thumb"], img[src*="amplify_video_thumb"]')?.src || null;
+              downloadTweetAudio({
+                videoUrl: chosen.targetFormatUrl || vItem.directMediaUrl,
+                outerTweetId,
+                targetTid: outerTweetId,
+                targetInfo: outerInfo,
+                thumbUrl,
+                pageUrl,
+                clientReqId,
+                onDone: (ok) => {
+                  if (ok) markSuccess(1);
+                  else markReset(1);
+                }
+              });
+              return;
+            }
+            startVideoDl(chosen.targetQuality, chosen.targetFormatUrl, false);
+          },
+          onCancel: () => markReset(1)
+        });
+        return;
+      } else {
+        startVideoDl(contentSettings.defaultQuality || "native");
+        return;
+      }
+    }
+
+    // Single GIF handling
+    if (mediaList.length === 1 && mediaList[0].type === "gif") {
+      handleGifDownloadFlow({
+        anchorEl: btn,
+        targetTweetId: outerTweetId,
+        outerTweetId: outerTweetId,
+        author: outerInfo.author,
+        screenName: outerInfo.screenName,
+        tweetText: outerInfo.text,
+        directMediaUrl: mediaList[0].directMediaUrl,
+        pageUrl: pageUrl,
+        onDone: (ok) => {
+          if (ok) markSuccess(1);
+          else markReset(1);
+        }
+      });
+      return;
+    }
+
+    // Batch download or single photo
+    downloadAllMediaList(mediaList, outerTweetId, outerInfo, pageUrl, (ok) => {
+      if (ok) markSuccess(mediaList.length);
+      else markReset(mediaList.length);
+    }, (prog) => {
+      if (mediaList.length > 1 && btn.dataset.downloading) {
+        const { completedCount, totalCount } = prog;
+        btn.innerHTML = `
+          <svg class="x-vault-spin" width="18" height="18" viewBox="0 0 24 24" fill="none" style="pointer-events: none;">
+            <circle cx="12" cy="12" r="9" stroke="rgba(29, 155, 240, 0.25)" stroke-width="2.5"/>
+            <path d="M12 3a9 9 0 0 1 9 9" stroke="#1d9bf0" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+          <span class="x-tweet-dl-count" style="font-size: 12px; font-weight: 600; color: #1d9bf0; pointer-events: none;">${completedCount}/${totalCount}</span>
+        `;
+      }
+    });
+  }
+
   // Reliable Tweet Action Bar Locator (Bottom interaction bar)
   function findTweetActionBar(article, quoteBox) {
     if (!article) return null;
@@ -2859,7 +3658,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
   }
 
   function updateTweetDlButtonHtml(btn, totalMedia) {
-    if (!btn || btn.dataset.saved) return;
+    if (!btn || btn.dataset.saved || btn.dataset.downloading) return;
     delete btn.dataset.isPill;
     btn.style.cssText = `
       display: inline-flex;
@@ -2876,13 +3675,16 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
       transition: background-color 0.2s, color 0.2s;
       flex-shrink: 0;
       gap: 4px;
+      pointer-events: auto !important;
+      position: relative !important;
+      z-index: 6 !important;
     `;
 
     const iconSvg = `
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-        <polyline points="7 10 12 15 17 10"/>
-        <line x1="12" y1="15" x2="12" y2="3"/>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="pointer-events: none;">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" style="pointer-events: none;"/>
+        <polyline points="7 10 12 15 17 10" style="pointer-events: none;"/>
+        <line x1="12" y1="15" x2="12" y2="3" style="pointer-events: none;"/>
       </svg>
     `;
 
@@ -2890,7 +3692,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
       btn.title = currentLang === "en" ? `Download All (${totalMedia}) Media Items` : `Unduh Semua (${totalMedia}) Media`;
       btn.innerHTML = `
         ${iconSvg}
-        <span class="x-tweet-dl-count" style="font-size: 13px; font-weight: 400; line-height: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: inherit; transition: color 0.2s;">${totalMedia}</span>
+        <span class="x-tweet-dl-count" style="font-size: 13px; font-weight: 400; line-height: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: inherit; transition: color 0.2s; pointer-events: none;">${totalMedia}</span>
       `;
     } else {
       btn.title = currentLang === "en" ? "Download Media (X Downloader)" : "Unduh Media (X Downloader)";
@@ -3124,6 +3926,19 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
                 });
               } else {
                 const thumbUrl = vContainer?.querySelector?.("video")?.poster || vContainer?.querySelector?.('img[src*="video_thumb"], img[src*="amplify_video_thumb"]')?.src || null;
+                if (opt?.isAudioOnly) {
+                  downloadTweetAudio({
+                    videoUrl: opt?.targetFormatUrl || directMediaUrl,
+                    outerTweetId,
+                    targetTid,
+                    targetInfo,
+                    thumbUrl,
+                    pageUrl,
+                    clientReqId,
+                    onDone: done
+                  });
+                  return;
+                }
                 chrome.runtime.sendMessage({
                   action: "DOWNLOAD_TWITTER_TWEET",
                   payload: {
@@ -3158,7 +3973,10 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
             }
           });
 
-          if (contentSettings.mediaCornerBadges === false) {
+          const isAllowedType = !Array.isArray(contentSettings.badgeMediaTypes) || 
+            contentSettings.badgeMediaTypes.includes(isGif ? "gif" : "video");
+
+          if (contentSettings.mediaCornerBadges === false || !isAllowedType) {
             badge.style.display = "none";
           }
 
@@ -3219,7 +4037,10 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
             }
           });
 
-          if (contentSettings.mediaCornerBadges === false) {
+          const isPhotoAllowed = !Array.isArray(contentSettings.badgeMediaTypes) || 
+            contentSettings.badgeMediaTypes.includes("photo");
+
+          if (contentSettings.mediaCornerBadges === false || !isPhotoAllowed) {
             badge.style.display = "none";
           }
 
@@ -3325,7 +4146,23 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
           });
         });
 
-        // C. Inject "Download All" in Quote Tweet Header row ONLY IF quote tweet has > 1 media items
+        // C1. Inject "Download All" in Outer Tweet Header row ONLY IF outer tweet has > 1 media items
+        if (outerMediaList.length > 1) {
+          const outerInfo = extractTweetInfo(article);
+          injectTweetHeaderDownloadAll(
+            article,
+            outerMediaList,
+            outerInfo,
+            outerTweetId,
+            outerTimeLink?.href || window.location.href
+          );
+        } else {
+          // Clean up any stray header download-all wrappers if outer tweet has <= 1 media
+          const staleHeaderBtn = article.querySelector(".x-tweet-header-dl-all-wrapper");
+          if (staleHeaderBtn) staleHeaderBtn.remove();
+        }
+
+        // C2. Inject "Download All" in Quote Tweet Header row ONLY IF quote tweet has > 1 media items
         if (quoteBox && quotedMediaList.length > 1) {
           const quoteInfo = extractTweetInfo(quoteBox);
           injectQuoteTweetDownloadAll(
@@ -3354,7 +4191,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
             if (!btnWrapper) {
               btnWrapper = document.createElement("div");
               btnWrapper.className = "x-tweet-dl-wrapper";
-              btnWrapper.style.cssText = "display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; min-width: 36px; height: 100%;";
+              btnWrapper.style.cssText = "display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; min-width: 36px; height: 100%; position: relative !important; z-index: 5 !important; pointer-events: auto !important;";
 
               btn = document.createElement("button");
               btn.type = "button";
@@ -3374,9 +4211,20 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
                 transition: background-color 0.2s, color 0.2s;
                 flex-shrink: 0;
                 gap: 4px;
+                pointer-events: auto !important;
+                position: relative !important;
+                z-index: 6 !important;
               `;
 
               btnWrapper.appendChild(btn);
+
+              const stopNativeEvent = (e) => {
+                e.stopPropagation();
+              };
+              ["pointerdown", "mousedown", "pointerup", "mouseup", "touchstart", "touchend"].forEach(evt => {
+                btnWrapper.addEventListener(evt, stopNativeEvent, { capture: true });
+                btn.addEventListener(evt, stopNativeEvent, { capture: true });
+              });
 
               btn.addEventListener("mouseenter", () => {
                 if (btn.dataset.saved || btn.dataset.downloading) return;
@@ -3393,48 +4241,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
                 e.stopPropagation();
                 e.preventDefault();
                 if (btn.dataset.downloading || btn.dataset.saved) return;
-
-                btn.dataset.downloading = "true";
-                btn.style.color = "rgb(29, 155, 240)";
-                btn.innerHTML = `
-                  <svg class="x-vault-spin" width="18" height="18" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="9" stroke="rgba(29, 155, 240, 0.25)" stroke-width="2.5"/>
-                    <path d="M12 3a9 9 0 0 1 9 9" stroke="#1d9bf0" stroke-width="2.5" stroke-linecap="round"/>
-                  </svg>
-                `;
-
-                const outerInfo = extractTweetInfo(article);
-                const pageUrl = outerTimeLink?.href || window.location.href;
-
-                const markSuccess = () => {
-                  delete btn.dataset.downloading;
-                  btn.dataset.saved = "true";
-                  btn.style.color = "#00ba7c";
-                  btn.style.backgroundColor = "rgba(0, 186, 124, 0.1)";
-                  btn.innerHTML = `
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                      <polyline points="20 6 9 17 4 12"/>
-                    </svg>
-                  `;
-                  setTimeout(() => {
-                    delete btn.dataset.saved;
-                    btn.style.backgroundColor = "transparent";
-                    btn.style.color = "rgb(113, 118, 123)";
-                    updateTweetDlButtonHtml(btn, outerMediaList.length);
-                  }, 2500);
-                };
-                const markReset = () => {
-                  delete btn.dataset.downloading;
-                  delete btn.dataset.saved;
-                  btn.style.backgroundColor = "transparent";
-                  btn.style.color = "rgb(113, 118, 123)";
-                  updateTweetDlButtonHtml(btn, outerMediaList.length);
-                };
-
-                downloadAllMediaList(outerMediaList, outerTweetId, outerInfo, pageUrl, (ok) => {
-                  if (ok) markSuccess();
-                  else markReset();
-                });
+                handleTweetActionBarDownloadClick(btn, article, quoteBox);
               });
 
               if (actionGroup.children.length >= 2) {
@@ -3442,7 +4249,26 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
               } else {
                 actionGroup.appendChild(btnWrapper);
               }
+            } else {
+              // Self-healing check: ensure wrapper stays before share button
+              if (actionGroup.children.length >= 2 && actionGroup.lastElementChild !== btnWrapper && btnWrapper.nextElementSibling !== actionGroup.lastElementChild) {
+                actionGroup.insertBefore(btnWrapper, actionGroup.lastElementChild);
+              }
             }
+
+            // Cache latest scan metadata on the button element
+            btn._latestOuterMedia = outerMediaList;
+            btn._latestTweetId = outerTweetId;
+            btn._latestTweetInfo = extractTweetInfo(article);
+            btn._latestPageUrl = outerTimeLink?.href || window.location.href;
+
+            // Always update click handler so it has live dynamic media lookup
+            btn.onclick = (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              if (btn.dataset.downloading || btn.dataset.saved) return;
+              handleTweetActionBarDownloadClick(btn, article, quoteBox);
+            };
 
             if (btn && !btn.dataset.saved && !btn.dataset.downloading) {
               updateTweetDlButtonHtml(btn, outerMediaList.length);
@@ -3642,6 +4468,28 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
       const vidTarget = enlargedVideo.closest('div[data-testid="videoPlayer"], div[data-testid="videoComponent"]') || enlargedVideo.parentElement;
       const twVidId = extractTwVideoId(vidTarget);
       const thumbUrl = enlargedVideo.poster || null;
+
+      if (chosen?.isAudioOnly) {
+        downloadTweetAudio({
+          videoUrl: chosen?.targetFormatUrl || (enlargedVideo.src?.startsWith("blob:") ? null : enlargedVideo.src),
+          outerTweetId: statusTweetId,
+          targetTid: statusTweetId,
+          targetInfo: tweetInfo,
+          thumbUrl,
+          pageUrl: tweetPageUrl,
+          clientReqId,
+          onDone: (ok) => {
+            const tracker = activeDownloadTrackers.get(clientReqId);
+            if (ok) {
+              if (tracker && tracker.onComplete) tracker.onComplete();
+            } else {
+              if (tracker && tracker.onError) tracker.onError();
+            }
+          }
+        });
+        return;
+      }
+
       chrome.runtime.sendMessage({
         action: "DOWNLOAD_TWITTER_TWEET",
         payload: {

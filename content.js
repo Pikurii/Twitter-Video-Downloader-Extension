@@ -15,6 +15,54 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
     return;
   }
 
+  // Safe messaging wrapper to protect against "Extension context invalidated" errors
+  // (which occur when the extension is reloaded/updated while old tabs remain open)
+  if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+    const rawSendMessage = chrome.runtime.sendMessage.bind(chrome.runtime);
+    chrome.runtime.sendMessage = function (message, responseCallback) {
+      if (!chrome.runtime?.id) {
+        showTwitterToast(
+          currentLang === "en"
+            ? "Extension was reloaded. Please refresh this tab (F5)."
+            : "Ekstensi baru saja dimuat ulang. Silakan refresh tab ini (F5)."
+        );
+        if (typeof responseCallback === "function") responseCallback(null);
+        return;
+      }
+      try {
+        return rawSendMessage(message, function (response) {
+          if (chrome.runtime?.lastError) {
+            const msg = chrome.runtime.lastError.message || "";
+            if (msg.includes("Extension context invalidated")) {
+              showTwitterToast(
+                currentLang === "en"
+                  ? "Extension was reloaded. Please refresh this tab (F5)."
+                  : "Ekstensi baru saja dimuat ulang. Silakan refresh tab ini (F5)."
+              );
+              if (typeof responseCallback === "function") responseCallback(null);
+              return;
+            }
+          }
+          if (typeof responseCallback === "function") {
+            responseCallback(response);
+          }
+        });
+      } catch (err) {
+        if (String(err).includes("Extension context invalidated")) {
+          showTwitterToast(
+            currentLang === "en"
+              ? "Extension was reloaded. Please refresh this tab (F5)."
+              : "Ekstensi baru saja dimuat ulang. Silakan refresh tab ini (F5)."
+          );
+          if (typeof responseCallback === "function") responseCallback(null);
+        } else {
+          console.warn("[X-Vault] SendMessage error:", err);
+          if (typeof responseCallback === "function") responseCallback(null);
+        }
+      }
+    };
+  }
+
   // Cross-browser fallback: ensure twitter_interceptor.js runs in MAIN world (vital for Opera GX, Brave & Firefox)
   if (typeof window !== "undefined" && !window.__vdp_twitter_interceptor_active) {
     try {

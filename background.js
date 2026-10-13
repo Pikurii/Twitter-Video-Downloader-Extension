@@ -38,6 +38,13 @@ const DEFAULT_SETTINGS = {
   tosAccepted: true
 };
 
+const TWITTER_URL_PATTERNS = [
+  "*://x.com/*",
+  "*://*.x.com/*",
+  "*://twitter.com/*",
+  "*://*.twitter.com/*"
+];
+
 // In-memory stores
 const mediaStore = new Map();
 const tabMetadataStore = new Map();
@@ -52,6 +59,26 @@ const twitterVariantsCache = new Map();
 const twitterVariantsByTweetId = new Map();
 const twitterVariantsByParentId = new Map();
 const twitterTweetUrlStore = new Map();
+
+// High-performance bounded LRU Map setter (prevents unbounded memory growth in long Twitter sessions)
+function setBoundedMap(map, key, value, limit = 400) {
+  if (!key) return;
+  if (map.has(key)) map.delete(key);
+  map.set(key, value);
+  if (map.size > limit) {
+    const oldestKey = map.keys().next().value;
+    map.delete(oldestKey);
+  }
+}
+
+function addBoundedSet(set, item, limit = 500) {
+  if (!item) return;
+  set.add(item);
+  if (set.size > limit) {
+    const oldest = set.values().next().value;
+    set.delete(oldest);
+  }
+}
 
 // Session storage backing for MV3 resilience (safely fallback to local on Opera GX / Firefox)
 let sessionStore = chrome?.storage?.local;
@@ -135,13 +162,21 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   // Re-inject content script into open Twitter/X tabs so users NEVER have to manually refresh Twitter (F5)
   if (chrome.scripting && chrome.tabs) {
     try {
-      const tabs = await chrome.tabs.query({ url: ["*://*.x.com/*", "*://*.twitter.com/*"] });
+      const tabs = await chrome.tabs.query({ url: TWITTER_URL_PATTERNS });
       for (const tab of tabs) {
         if (!tab.id) continue;
         try {
+          // 1. Re-inject MAIN world GraphQL interceptor
           await chrome.scripting.executeScript({
             target: { tabId: tab.id },
-            files: ["lame.min.js", "content.js"]
+            files: ["twitter_interceptor.js"],
+            world: "MAIN"
+          }).catch(() => {});
+
+          // 2. Re-inject ISOLATED world UI and downloader scripts
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ["lame.min.js", "modules/gifEncoder.js", "content.js"]
           });
         } catch (err) {}
       }
@@ -157,19 +192,19 @@ function setupContextMenus() {
       id: "vdp_download_video",
       title: "Download Video X Ini",
       contexts: ["video"],
-      documentUrlPatterns: ["*://x.com/*", "*://twitter.com/*"]
+      documentUrlPatterns: TWITTER_URL_PATTERNS
     });
     chrome.contextMenus.create({
       id: "vdp_download_audio",
       title: "Ekstrak Audio Saja (MP3)",
       contexts: ["video"],
-      documentUrlPatterns: ["*://x.com/*", "*://twitter.com/*"]
+      documentUrlPatterns: TWITTER_URL_PATTERNS
     });
     chrome.contextMenus.create({
       id: "vdp_copy_media_link",
       title: "Salin Tautan Media X",
       contexts: ["video", "audio", "image"],
-      documentUrlPatterns: ["*://x.com/*", "*://twitter.com/*"]
+      documentUrlPatterns: TWITTER_URL_PATTERNS
     });
   });
 }
@@ -245,8 +280,14 @@ function sanitizeFilename(name) {
   sanitized = sanitized.replace(/\s+/g, " ");
   sanitized = sanitized.replace(/_+/g, "_");
   sanitized = sanitized.replace(/^_+|_+$/g, "");
+  // Trim trailing dots and whitespace (illegal in Windows and causes download failure)
+  sanitized = sanitized.replace(/[\s.]+$/, "");
   if (sanitized.length > 120) {
-    sanitized = sanitized.substring(0, 120);
+    sanitized = sanitized.substring(0, 120).replace(/[\s.]+$/, "");
+  }
+  // Guard against Windows reserved device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
+  if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i.test(sanitized)) {
+    sanitized = "x_" + sanitized;
   }
   return sanitized || "media_" + Date.now();
 }
@@ -257,6 +298,10 @@ function sanitizeDirectoryName(name) {
   sanitized = sanitized.replace(/\s+/g, "_");
   sanitized = sanitized.replace(/_+/g, "_");
   sanitized = sanitized.replace(/^[\s._]+|[\s._]+$/g, "");
+  // Guard against Windows reserved device names
+  if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i.test(sanitized)) {
+    sanitized = "x_" + sanitized;
+  }
   return sanitized || "X_Vault_Downloads";
 }
 
@@ -564,6 +609,18 @@ async function recordDownload(type = "video", metadata = {}) {
 
     let item = null;
     if (settings.historyLogging !== false) {
+      // Storage Safety & Compaction: Ensure thumbnail is a clean compact URL, not a multi-megabyte base64 dataUrl
+      let safeThumb = metadata.thumbnail || null;
+      if (typeof safeThumb === "string" && (safeThumb.startsWith("data:") || safeThumb.length > 2048)) {
+        safeThumb = metadata.tweetId ? `https://pbs.twimg.com/tweet_video_thumb/${metadata.tweetId}.jpg` : null;
+      }
+
+      // Storage Safety & Compaction: Don't persist expired blob URLs or heavy data URLs in long-term storage
+      let safeDlUrl = metadata.downloadUrl || null;
+      if (typeof safeDlUrl === "string" && (safeDlUrl.startsWith("blob:") || safeDlUrl.startsWith("data:"))) {
+        safeDlUrl = null;
+      }
+
       item = {
         id: "dl_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
         downloadId: metadata.downloadId || null,
@@ -577,12 +634,12 @@ async function recordDownload(type = "video", metadata = {}) {
         tweetText: metadata.tweetText || metadata.title || "",
         tweetTime: metadata.tweetTime || "",
         tweetIsoDate: metadata.tweetIsoDate || "",
-        thumbnail: metadata.thumbnail || null,
+        thumbnail: safeThumb,
         tweetUrl: metadata.tweetUrl || (metadata.tweetId ? `https://x.com/${metadata.screenName || "i"}/status/${metadata.tweetId}` : null),
-        downloadUrl: metadata.downloadUrl || null
+        downloadUrl: safeDlUrl
       };
       history.unshift(item);
-      if (history.length > 100) history.pop();
+      if (history.length > 150) history.pop();
     }
 
     await chrome.storage.local.set({
@@ -610,7 +667,7 @@ function trackPendingDownload(downloadId, type = "video", metadata = {}) {
     const item = results && results[0];
     if (item && item.state === "complete") {
       if (completedDownloadIds.has(downloadId)) return;
-      completedDownloadIds.add(downloadId);
+      addBoundedSet(completedDownloadIds, downloadId);
       downloadTracker.delete(downloadId);
       downloadTracker.delete(Number(downloadId));
       downloadTracker.delete(String(downloadId));
@@ -706,7 +763,7 @@ if (chrome.webRequest && chrome.webRequest.onBeforeRequest) {
         const cleanThumbUrl = url.replace(/:(?:small|thumb|tiny)$/i, ":medium");
 
         if (twVideoId) {
-          twitterThumbStore.set(twVideoId, cleanThumbUrl);
+          setBoundedMap(twitterThumbStore, twVideoId, cleanThumbUrl);
         }
 
         const list = mediaStore.get(tabId) || [];
@@ -772,7 +829,7 @@ chrome.downloads.onChanged.addListener((delta) => {
 
       if (state === "complete") {
         if (!completedDownloadIds.has(downloadId)) {
-          completedDownloadIds.add(downloadId);
+          addBoundedSet(completedDownloadIds, downloadId);
           downloadTracker.delete(downloadId);
           downloadTracker.delete(Number(downloadId));
           downloadTracker.delete(String(downloadId));
@@ -888,11 +945,11 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
       const items = payload?.items;
       if (Array.isArray(items)) {
         items.forEach((it) => {
-          if (it.twVideoId) twitterVariantsCache.set(it.twVideoId, it);
-          if (it.tweetId) twitterVariantsByTweetId.set(it.tweetId, it);
-          if (it.parentTweetId) twitterVariantsByParentId.set(it.parentTweetId, it);
-          if (it.twVideoId && it.tweetUrl) twitterTweetUrlStore.set(it.twVideoId, it.tweetUrl);
-          if (it.tweetId && it.tweetUrl) twitterTweetUrlStore.set(it.tweetId, it.tweetUrl);
+          if (it.twVideoId) setBoundedMap(twitterVariantsCache, it.twVideoId, it);
+          if (it.tweetId) setBoundedMap(twitterVariantsByTweetId, it.tweetId, it);
+          if (it.parentTweetId) setBoundedMap(twitterVariantsByParentId, it.parentTweetId, it);
+          if (it.twVideoId && it.tweetUrl) setBoundedMap(twitterTweetUrlStore, it.twVideoId, it.tweetUrl);
+          if (it.tweetId && it.tweetUrl) setBoundedMap(twitterTweetUrlStore, it.tweetId, it.tweetUrl);
         });
       }
       sendResponse({ success: true });
@@ -902,8 +959,8 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
     if (action === "LINK_TWITTER_MEDIA_TO_TWEET") {
       const { twVideoId, tweetId, tweetUrl, author, screenName, tweetText } = payload || {};
       const validUrl = tweetUrl && tweetUrl.includes("/status/") ? tweetUrl : null;
-      if (twVideoId && validUrl) twitterTweetUrlStore.set(twVideoId, validUrl);
-      if (tweetId && validUrl) twitterTweetUrlStore.set(tweetId, validUrl);
+      if (twVideoId && validUrl) setBoundedMap(twitterTweetUrlStore, twVideoId, validUrl);
+      if (tweetId && validUrl) setBoundedMap(twitterTweetUrlStore, tweetId, validUrl);
 
       if (twVideoId && twitterVariantsCache.has(twVideoId)) {
         const item = twitterVariantsCache.get(twVideoId);
@@ -1107,7 +1164,7 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         });
         const askSave = Boolean(settings.askSaveLocation);
 
-        intendedDownloadByUrl.set(downloadUrl, fname);
+        setBoundedMap(intendedDownloadByUrl, downloadUrl, fname);
         chrome.downloads.download({
           url: downloadUrl,
           filename: fname,
@@ -1115,9 +1172,9 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           conflictAction: "uniquify"
         }, (downloadId) => {
           if (downloadId) {
-            intendedDownloadFilenames.set(downloadId, fname);
-            intendedDownloadFilenames.set(Number(downloadId), fname);
-            intendedDownloadFilenames.set(String(downloadId), fname);
+            setBoundedMap(intendedDownloadFilenames, downloadId, fname);
+            setBoundedMap(intendedDownloadFilenames, Number(downloadId), fname);
+            setBoundedMap(intendedDownloadFilenames, String(downloadId), fname);
             const resolvedThumbnail = payload?.thumbnail || itemToDownload.thumbnail || (twVideoId ? twitterThumbStore.get(twVideoId) : null);
             const resolvedTweetUrl = payload?.pageUrl || itemToDownload.tweetUrl || (tweetId ? `https://x.com/${payload?.screenName || itemToDownload.screenName || "i"}/status/${tweetId}` : null);
             const resolvedTweetTime = payload?.tweetTime || itemToDownload.tweetTime || "";
@@ -1143,7 +1200,7 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
 
             if (data?.settings?.downloadThumbnail && itemToDownload.thumbnail) {
               const thumbName = fname.replace(/\.mp4$/i, ".jpg");
-              intendedDownloadByUrl.set(itemToDownload.thumbnail, thumbName);
+              setBoundedMap(intendedDownloadByUrl, itemToDownload.thumbnail, thumbName);
               chrome.downloads.download({
                 url: itemToDownload.thumbnail,
                 filename: thumbName,
@@ -1151,9 +1208,9 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
                 conflictAction: "uniquify"
               }, (thumbDlId) => {
                 if (thumbDlId) {
-                  intendedDownloadFilenames.set(thumbDlId, thumbName);
-                  intendedDownloadFilenames.set(Number(thumbDlId), thumbName);
-                  intendedDownloadFilenames.set(String(thumbDlId), thumbName);
+                  setBoundedMap(intendedDownloadFilenames, thumbDlId, thumbName);
+                  setBoundedMap(intendedDownloadFilenames, Number(thumbDlId), thumbName);
+                  setBoundedMap(intendedDownloadFilenames, String(thumbDlId), thumbName);
                 }
               });
             }
@@ -1192,7 +1249,7 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
       const data = await chrome.storage.local.get("settings");
       const askSave = Boolean(data?.settings?.askSaveLocation);
 
-      intendedDownloadByUrl.set(blobUrl, fname);
+      setBoundedMap(intendedDownloadByUrl, blobUrl, fname);
       chrome.downloads.download({
         url: blobUrl,
         filename: fname,
@@ -1200,9 +1257,9 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         conflictAction: "uniquify"
       }, (downloadId) => {
         if (downloadId) {
-          intendedDownloadFilenames.set(downloadId, fname);
-          intendedDownloadFilenames.set(Number(downloadId), fname);
-          intendedDownloadFilenames.set(String(downloadId), fname);
+          setBoundedMap(intendedDownloadFilenames, downloadId, fname);
+          setBoundedMap(intendedDownloadFilenames, Number(downloadId), fname);
+          setBoundedMap(intendedDownloadFilenames, String(downloadId), fname);
           trackPendingDownload(downloadId, "audio", {
             title: tweetText || "Audio " + tid,
             filename: fname,
@@ -1243,8 +1300,8 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
       const data = await chrome.storage.local.get("settings");
       const askSave = Boolean(data?.settings?.askSaveLocation);
 
-      intendedDownloadByUrl.set(highResUrl, fname);
-      intendedDownloadByUrl.set(highResUrl.split("?")[0], fname);
+      setBoundedMap(intendedDownloadByUrl, highResUrl, fname);
+      setBoundedMap(intendedDownloadByUrl, highResUrl.split("?")[0], fname);
       chrome.downloads.download({
         url: highResUrl,
         filename: fname,
@@ -1252,9 +1309,9 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         conflictAction: "uniquify"
       }, (downloadId) => {
         if (downloadId) {
-          intendedDownloadFilenames.set(downloadId, fname);
-          intendedDownloadFilenames.set(Number(downloadId), fname);
-          intendedDownloadFilenames.set(String(downloadId), fname);
+          setBoundedMap(intendedDownloadFilenames, downloadId, fname);
+          setBoundedMap(intendedDownloadFilenames, Number(downloadId), fname);
+          setBoundedMap(intendedDownloadFilenames, String(downloadId), fname);
           const resolvedTweetUrl = payload?.pageUrl || (tweetId ? `https://x.com/${screenName || "i"}/status/${tweetId}` : null);
           trackPendingDownload(downloadId, "image", {
             title: tweetText || `@${screenName || author || "user"} photo`,
@@ -1321,8 +1378,9 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
     }
 
     if (action === "DOWNLOAD_GIF_FILE") {
-      const { dataUrl, tweetId, author, screenName, tweetText, quality } = payload || {};
-      if (!dataUrl) {
+      const { blobUrl, dataUrl, tweetId, author, screenName, tweetText, quality } = payload || {};
+      const downloadTargetUrl = blobUrl || dataUrl;
+      if (!downloadTargetUrl) {
         sendResponse({ success: false, error: "No GIF data provided" });
         return;
       }
@@ -1338,16 +1396,17 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         const data = await chrome.storage.local.get("settings");
         const askSave = Boolean(data?.settings?.askSaveLocation);
 
-        intendedDownloadByUrl.set(dataUrl, fname);
+        setBoundedMap(intendedDownloadByUrl, downloadTargetUrl, fname);
         chrome.downloads.download({
-          url: dataUrl,
+          url: downloadTargetUrl,
           filename: fname,
-          saveAs: askSave
+          saveAs: askSave,
+          conflictAction: "uniquify"
         }, (downloadId) => {
           if (downloadId) {
-            intendedDownloadFilenames.set(downloadId, fname);
-            intendedDownloadFilenames.set(Number(downloadId), fname);
-            intendedDownloadFilenames.set(String(downloadId), fname);
+            setBoundedMap(intendedDownloadFilenames, downloadId, fname);
+            setBoundedMap(intendedDownloadFilenames, Number(downloadId), fname);
+            setBoundedMap(intendedDownloadFilenames, String(downloadId), fname);
             const resolvedTweetUrl = payload?.pageUrl || (tweetId ? `https://x.com/${screenName || "i"}/status/${tweetId}` : null);
             let resolvedThumb = payload?.thumbnail;
             if (!resolvedThumb || resolvedThumb.startsWith("data:image/gif")) {
@@ -1382,9 +1441,9 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
       const tabId = sender.tab ? sender.tab.id : payload?.tabId;
       const item = payload?.item;
       if (tabId && item) {
-        if (item.twVideoId) twitterVariantsCache.set(item.twVideoId, item);
-        if (item.tweetId) twitterVariantsByTweetId.set(item.tweetId, item);
-        if (item.parentTweetId) twitterVariantsByTweetId.set(item.parentTweetId, item);
+        if (item.twVideoId) setBoundedMap(twitterVariantsCache, item.twVideoId, item);
+        if (item.tweetId) setBoundedMap(twitterVariantsByTweetId, item.tweetId, item);
+        if (item.parentTweetId) setBoundedMap(twitterVariantsByTweetId, item.parentTweetId, item);
 
         chrome.tabs.get(tabId, (tab) => {
           const tabUrl = (tab && tab.url) || "";

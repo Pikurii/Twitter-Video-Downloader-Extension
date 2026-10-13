@@ -8,6 +8,12 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
   globalThis.browser = chrome;
 }
 
+// Immediate theme application from cache to avoid visual flash
+try {
+  const syncTheme = localStorage.getItem("x_vault_theme_sync") || "dark";
+  document.documentElement.setAttribute("data-theme", syncTheme);
+} catch (e) {}
+
 document.addEventListener("DOMContentLoaded", () => {
   // ==================== I18N DICTIONARY ====================
   const I18N = {
@@ -19,6 +25,7 @@ document.addEventListener("DOMContentLoaded", () => {
       nsfwShieldTitle: "NSFW Auto-Unblur",
       nsfwShieldDesc: "Buka konten sensitif otomatis di linimasa",
       btnDrop: "UNDUH",
+      quickDropPlaceholder: "Tempel URL tweet X...",
       recentVaultTitle: "RECENT DROPS",
       viewAll: "Lihat Semua →",
       openTwitter: "Buka x.com ↗",
@@ -42,6 +49,7 @@ document.addEventListener("DOMContentLoaded", () => {
       nsfwShieldTitle: "NSFW Auto-Unblur",
       nsfwShieldDesc: "Automatically reveal sensitive media on timeline",
       btnDrop: "GET",
+      quickDropPlaceholder: "Paste X tweet URL here...",
       recentVaultTitle: "RECENT DROPS",
       viewAll: "View All →",
       openTwitter: "Open x.com ↗",
@@ -255,14 +263,27 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Apply Language to UI
   function applyLanguage(lang) {
-    document.documentElement.lang = lang;
+    const selectedLang = lang === "en" ? "en" : "id";
+    document.documentElement.lang = selectedLang;
+    const dict = I18N[selectedLang] || I18N.id;
 
     document.querySelectorAll("[data-i18n]").forEach(el => {
       const key = el.getAttribute("data-i18n");
-      if (key && I18N[lang] && I18N[lang][key]) {
-        el.textContent = I18N[lang][key];
+      if (key && dict[key]) {
+        el.textContent = dict[key];
       }
     });
+
+    document.querySelectorAll("[data-i18n-placeholder]").forEach(el => {
+      const key = el.getAttribute("data-i18n-placeholder");
+      if (key && dict[key]) {
+        el.placeholder = dict[key];
+      }
+    });
+
+    if (quickDropInput) {
+      quickDropInput.placeholder = dict.quickDropPlaceholder || (selectedLang === "en" ? "Paste X tweet URL here..." : "Tempel URL tweet X...");
+    }
 
     renderPlayerCardAndStats();
     renderRecentDrops();

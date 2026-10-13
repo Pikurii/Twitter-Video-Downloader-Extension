@@ -4,9 +4,20 @@
   if (window.__vdp_twitter_interceptor_active) return;
   window.__vdp_twitter_interceptor_active = true;
 
-  // Cache of Twitter media items by twVideoId and by tweetId
+  // Cache of Twitter media items by twVideoId and by tweetId (bounded to prevent memory bloat)
+  const MAX_CACHE_SIZE = 300;
   const twitterCacheByVideoId = new Map();
   const twitterCacheByTweetId = new Map();
+
+  function setBoundedCache(map, key, val) {
+    if (map.has(key)) {
+      map.delete(key);
+    } else if (map.size >= MAX_CACHE_SIZE) {
+      const oldestKey = map.keys().next().value;
+      map.delete(oldestKey);
+    }
+    map.set(key, val);
+  }
 
   function formatBitrate(bps) {
     if (!bps || isNaN(bps) || bps <= 0) return "";
@@ -378,11 +389,11 @@
       }
     });
 
-    // Cache all items locally for instant lookup
+    // Cache all items locally with bounded LRU protection
     uniqueItems.forEach(item => {
-      if (item.twVideoId) twitterCacheByVideoId.set(item.twVideoId, item);
-      if (item.tweetId) twitterCacheByTweetId.set(item.tweetId, item);
-      if (item.parentTweetId) twitterCacheByTweetId.set(item.parentTweetId, item);
+      if (item.twVideoId) setBoundedCache(twitterCacheByVideoId, item.twVideoId, item);
+      if (item.tweetId) setBoundedCache(twitterCacheByTweetId, item.tweetId, item);
+      if (item.parentTweetId) setBoundedCache(twitterCacheByTweetId, item.parentTweetId, item);
     });
 
     // Send CACHE_TWITTER_VARIANTS to content/background to prime the high-res cache
@@ -438,8 +449,8 @@
   window.fetch = async function (...args) {
     const response = await origFetch.apply(this, args);
     try {
-      const url = typeof args[0] === "string" ? args[0] : (args[0]?.url || "");
-      if (url.includes("/graphql/") || url.includes("/i/api/") || url.includes("twitter.com") || url.includes("x.com")) {
+      const url = typeof args[0] === "string" ? args[0] : (args[0]?.url || args[0]?.href || "");
+      if (response && response.ok && (url.includes("/graphql/") || url.includes("/i/api/") || url.includes("twitter.com") || url.includes("x.com"))) {
         const clone = response.clone();
         clone.json().then(handleJsonResponse).catch(() => {});
       }

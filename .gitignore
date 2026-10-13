@@ -31,7 +31,7 @@ yarn-debug.log*
 yarn-error.log*
 
 # Build and Packaging artifacts (optional, keeping release zip tracked)
-# Video-Downloader-Extension.zip is kept for offline distribution
+# X-Vault-v2.2.0.zip is kept for offline distribution
 
 # Development mockups & local icon backups
 preview_logos/

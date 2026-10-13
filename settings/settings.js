@@ -8,6 +8,12 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
   globalThis.browser = chrome;
 }
 
+// Immediate theme application from cache to avoid visual flash
+try {
+  const syncTheme = localStorage.getItem("x_vault_theme_sync") || "dark";
+  document.documentElement.setAttribute("data-theme", syncTheme);
+} catch (e) {}
+
 document.addEventListener("DOMContentLoaded", () => {
   // ==================== I18N DICTIONARY ====================
   const I18N = {

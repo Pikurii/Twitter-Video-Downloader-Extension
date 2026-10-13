@@ -1,7 +1,7 @@
 # X-Vault - Twitter/X Media Downloader & Archival Hub
 
 <p align="center">
-  <a href="https://github.com/Pikurii/Twitter-Video-Downloader-Extension/raw/main/Video-Downloader-Extension.zip">
+  <a href="https://github.com/Pikurii/Twitter-Video-Downloader-Extension/raw/main/X-Vault-v2.2.0.zip">
     <img src="https://img.shields.io/badge/Download_Extension_(ZIP)-Ready_to_Use-22c55e?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Download ZIP" />
   </a>
   <a href="https://ko-fi.com/pikurii" target="_blank">
@@ -97,11 +97,11 @@ Engineered under Chrome Manifest V3 specifications with a strict privacy-first a
 ## Installation
 
 ### Method 1: Pre-packaged ZIP (Ready to Use)
-1. Download [`Video-Downloader-Extension.zip`](https://github.com/Pikurii/Twitter-Video-Downloader-Extension/raw/main/Video-Downloader-Extension.zip).
+1. Download [`X-Vault-v2.2.0.zip`](https://github.com/Pikurii/Twitter-Video-Downloader-Extension/raw/main/X-Vault-v2.2.0.zip).
 2. Extract the ZIP file into a dedicated folder on your computer.
 3. Open your browser and go to `chrome://extensions` (or `opera://extensions`, `edge://extensions`).
 4. Enable **Developer mode** using the toggle switch in the upper-right corner.
-5. Click **Load unpacked** and select the extracted folder.
+5. Click **Load unpacked** and select the extracted folder (or the `package/X-Vault` folder).
 6. Pin X-Vault to your browser toolbar for quick access.
 
 ### Method 2: Clone from Repository
@@ -147,23 +147,30 @@ X-Vault is built with an offline-first, zero-telemetry architecture:
 
 ```text
 Twitter-Video-Downloader-Extension/
-├── manifest.json              # Extension manifest (Manifest V3)
-├── background.js             # Service worker: stream interception, downloads, history
-├── content.js                # Content script: DOM observer, badges, GIF LZW encoder
-├── twitter_interceptor.js    # Injected script: GraphQL & API stream capture
-├── lame.min.js               # Client-side LAME MP3 audio encoder library
-├── popup/                    # Quick Drop Popup module
-│   ├── popup.html            # Popup interface
-│   ├── popup.css             # Glassmorphism stylesheet (Dark & Light)
-│   └── popup.js              # Popup controller, particle canvas & stats
-├── settings/                 # Control Hub & Options module
-│   ├── settings.html         # Control Hub dashboard
-│   ├── settings.css          # Control Hub stylesheet (Cyber Dark & Light)
-│   └── settings.js           # Settings controller, pattern engine, history
-├── icons/                    # Extension icons (16, 32, 48, 128 px)
-├── Video-Downloader-Extension.zip # Pre-built distribution package
-├── LICENSE                   # MIT License (c) 2026 Pikuri
-└── README.md                 # Documentation
+├── package/
+│   ├── X-Vault/                  # Clean standalone extension package
+│   │   ├── manifest.json         # Extension manifest (v2.2.0, MV3)
+│   │   ├── background.js         # Service worker: stream capture & downloads
+│   │   ├── content.js            # Content script: DOM observer & badges
+│   │   ├── twitter_interceptor.js# Injected script: GraphQL & API stream capture
+│   │   ├── lame.min.js           # Client-side LAME MP3 audio encoder
+│   │   ├── modules/              # Sub-modules (gifEncoder.js)
+│   │   ├── popup/                # Quick Drop Popup interface & controller
+│   │   ├── settings/             # Control Hub dashboard & settings logic
+│   │   └── icons/                # Production extension icons (16, 32, 48, 128 px)
+│   └── X-Vault-v2.2.0.zip        # Offline distribution zip package
+├── manifest.json                 # Root extension manifest
+├── background.js                # Root service worker
+├── content.js                   # Root content script
+├── twitter_interceptor.js       # Root interceptor
+├── lame.min.js                  # Root MP3 encoder
+├── modules/                     # Root modules
+├── popup/                       # Root popup module
+├── settings/                    # Root settings module
+├── icons/                       # Root extension icons
+├── X-Vault-v2.2.0.zip           # Ready-to-use distribution package
+├── LICENSE                      # MIT License (c) 2026 Pikuri
+└── README.md                    # Documentation
 ```
 
 ---

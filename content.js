@@ -209,10 +209,6 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
 
   // Initial metadata sync
   syncPageMetadata();
-  window.addEventListener("popstate", () => {
-    syncPageMetadata();
-    setTimeout(syncPageMetadata, 800);
-  });
 
   // High-Res Twitter media & GIF interceptor cache
   const cachedGifMediaIds = new Set();
@@ -266,6 +262,9 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
       }
 
       if (event.data.type === "TWITTER_URL_CHANGED") {
+        syncPageMetadata();
+        scheduleFullScan();
+        setTimeout(scheduleFullScan, 500);
         try {
           chrome.runtime.sendMessage({
             action: "TWITTER_URL_CHANGED",
@@ -397,14 +396,20 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
     if (e.key !== "d" && e.key !== "D") return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
 
-    // Do not trigger while typing in input, textarea, or contenteditable
+    // Do not trigger while typing in input, textarea, contenteditable, tweet composers, or search boxes
     const activeEl = document.activeElement;
     if (activeEl && (
       activeEl.tagName === "INPUT" ||
       activeEl.tagName === "TEXTAREA" ||
       activeEl.isContentEditable ||
-      activeEl.getAttribute("role") === "textbox"
+      activeEl.getAttribute("role") === "textbox" ||
+      activeEl.closest?.('input, textarea, [contenteditable="true"], [role="textbox"], [data-testid*="tweetTextarea"], [data-testid*="SearchBox"], [data-slate-editor="true"]')
     )) {
+      return;
+    }
+
+    // Do not trigger if any modal or quality picker is currently open
+    if (document.querySelector(".x-gif-picker-popup, .x-quality-picker-modal, .x-vault-modal")) {
       return;
     }
 
@@ -590,405 +595,16 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
     return null;
   }
 
-  // ==================== SPEC-COMPLIANT HIGH-PERFORMANCE GIF89a ENCODER ====================
-  function createGifEncoder(width, height) {
-    const buf = [];
-    let p = 0;
-
-    // Header: GIF89a
-    buf[p++] = 0x47; buf[p++] = 0x49; buf[p++] = 0x46; // GIF
-    buf[p++] = 0x38; buf[p++] = 0x39; buf[p++] = 0x61; // 89a
-
-    // Logical Screen Descriptor
-    buf[p++] = width & 0xFF; buf[p++] = (width >> 8) & 0xFF;
-    buf[p++] = height & 0xFF; buf[p++] = (height >> 8) & 0xFF;
-    buf[p++] = 0x00; // No Global Color Table
-    buf[p++] = 0x00; // Background Color Index
-    buf[p++] = 0x00; // Pixel Aspect Ratio
-
-    // Netscape Application Extension (Infinite Animation Loop)
-    buf[p++] = 0x21; buf[p++] = 0xFF; buf[p++] = 0x0B;
-    // NETSCAPE2.0
-    buf[p++] = 0x4E; buf[p++] = 0x45; buf[p++] = 0x54; buf[p++] = 0x53;
-    buf[p++] = 0x43; buf[p++] = 0x41; buf[p++] = 0x50; buf[p++] = 0x45;
-    buf[p++] = 0x32; buf[p++] = 0x2E; buf[p++] = 0x30;
-    buf[p++] = 0x03; buf[p++] = 0x01;
-    buf[p++] = 0x00; buf[p++] = 0x00; // loop count 0 = loop forever
-    buf[p++] = 0x00; // terminator
-
-    // LZW Output Stream (Spec-compliant GIF89a Variable-Bit LZW)
-    function writeLzwCodeStream(minCodeSize, indexStream) {
-      buf[p++] = minCodeSize;
-      let curSubblock = p++;
-
-      const clearCode = 1 << minCodeSize;
-      const codeMask = clearCode - 1;
-      const eoiCode = clearCode + 1;
-      let nextCode = eoiCode + 1;
-
-      let curCodeSize = minCodeSize + 1;
-      let curShift = 0;
-      let cur = 0;
-
-      function emitCode(c) {
-        cur |= c << curShift;
-        curShift += curCodeSize;
-        while (curShift >= 8) {
-          buf[p++] = cur & 0xFF;
-          cur >>= 8;
-          curShift -= 8;
-          if (p === curSubblock + 256) {
-            buf[curSubblock] = 255;
-            curSubblock = p++;
-          }
-        }
-      }
-
-      let ibCode = indexStream[0] & codeMask;
-      let codeTable = Object.create(null);
-
-      emitCode(clearCode);
-
-      for (let i = 1, len = indexStream.length; i < len; ++i) {
-        const k = indexStream[i] & codeMask;
-        const curKey = (ibCode << 8) | k;
-        const curCode = codeTable[curKey];
-
-        if (curCode === undefined) {
-          // Emit current index buffer
-          cur |= ibCode << curShift;
-          curShift += curCodeSize;
-          while (curShift >= 8) {
-            buf[p++] = cur & 0xFF;
-            cur >>= 8;
-            curShift -= 8;
-            if (p === curSubblock + 256) {
-              buf[curSubblock] = 255;
-              curSubblock = p++;
-            }
-          }
-
-          if (nextCode === 4096) {
-            emitCode(clearCode);
-            nextCode = eoiCode + 1;
-            curCodeSize = minCodeSize + 1;
-            codeTable = Object.create(null);
-          } else {
-            if (nextCode >= (1 << curCodeSize)) {
-              ++curCodeSize;
-            }
-            codeTable[curKey] = nextCode++;
-          }
-          ibCode = k;
-        } else {
-          ibCode = curCode;
-        }
-      }
-
-      emitCode(ibCode);
-      emitCode(eoiCode);
-
-      // Flush remaining bits
-      while (curShift > 0) {
-        buf[p++] = cur & 0xFF;
-        cur >>= 8;
-        curShift -= 8;
-        if (p === curSubblock + 256) {
-          buf[curSubblock] = 255;
-          curSubblock = p++;
-        }
-      }
-
-      // Finish subblock
-      if (curSubblock + 1 === p) {
-        buf[curSubblock] = 0;
-      } else {
-        buf[curSubblock] = p - curSubblock - 1;
-        buf[p++] = 0;
-      }
+  // ==================== MODULAR GIF89a ENCODER REFERENCE ====================
+  // Extracted to modules/gifEncoder.js for clean architecture & separation of concerns
+  const convertMp4ToGif = (...args) => {
+    const fn = (typeof window !== "undefined" && window.convertMp4ToGif) ||
+               (typeof globalThis !== "undefined" && globalThis.convertMp4ToGif);
+    if (typeof fn !== "function") {
+      throw new Error(currentLang === "en" ? "GIF encoder module is still loading..." : "Modul GIF encoder sedang dimuat...");
     }
-
-    function quantizeFrame(rgbaData, w, h, quality = "medium") {
-      const pixelCount = w * h;
-      const palette = new Uint8Array(256 * 3);
-      const indexedPixels = new Uint8Array(pixelCount);
-
-      const step = quality === "small" ? 4 : (quality === "medium" ? 2 : 1);
-      const colorMap = new Map();
-
-      for (let i = 0; i < rgbaData.length; i += 4 * step) {
-        const r = rgbaData[i] >> 3;
-        const g = rgbaData[i + 1] >> 3;
-        const b = rgbaData[i + 2] >> 3;
-        const key = (r << 10) | (g << 5) | b;
-        colorMap.set(key, (colorMap.get(key) || 0) + 1);
-      }
-
-      const sortedColors = Array.from(colorMap.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 256);
-
-      const palR = new Uint8Array(256);
-      const palG = new Uint8Array(256);
-      const palB = new Uint8Array(256);
-
-      for (let i = 0; i < 256; i++) {
-        if (i < sortedColors.length) {
-          const key = sortedColors[i][0];
-          const r = ((key >> 10) & 0x1F) << 3;
-          const g = ((key >> 5) & 0x1F) << 3;
-          const b = (key & 0x1F) << 3;
-          palR[i] = r;
-          palG[i] = g;
-          palB[i] = b;
-          palette[i * 3] = r;
-          palette[i * 3 + 1] = g;
-          palette[i * 3 + 2] = b;
-        } else {
-          palR[i] = 0;
-          palG[i] = 0;
-          palB[i] = 0;
-          palette[i * 3] = 0;
-          palette[i * 3 + 1] = 0;
-          palette[i * 3 + 2] = 0;
-        }
-      }
-
-      const palCount = Math.min(sortedColors.length, 256) || 1;
-      const lookupCache = new Int16Array(32768).fill(-1);
-
-      for (let pix = 0; pix < pixelCount; pix++) {
-        const offset = pix * 4;
-        const r = rgbaData[offset];
-        const g = rgbaData[offset + 1];
-        const b = rgbaData[offset + 2];
-        const rgbKey = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
-
-        let cached = lookupCache[rgbKey];
-        if (cached !== -1) {
-          indexedPixels[pix] = cached;
-        } else {
-          let bestIdx = 0;
-          let bestDist = Infinity;
-          for (let i = 0; i < palCount; i++) {
-            const dr = r - palR[i];
-            const dg = g - palG[i];
-            const db = b - palB[i];
-            const dist = dr * dr * 2 + dg * dg * 4 + db * db * 3;
-            if (dist < bestDist) {
-              bestDist = dist;
-              bestIdx = i;
-              if (dist === 0) break;
-            }
-          }
-          lookupCache[rgbKey] = bestIdx;
-          indexedPixels[pix] = bestIdx;
-        }
-      }
-
-      return { palette, indexedPixels };
-    }
-
-    function addFrame(rgbaData, frameWidth, frameHeight, delayMs = 100, quality = "medium") {
-      const { palette, indexedPixels } = quantizeFrame(rgbaData, frameWidth, frameHeight, quality);
-
-      // Graphic Control Extension (8 bytes)
-      buf[p++] = 0x21; // Extension Introducer
-      buf[p++] = 0xF9; // Graphic Control Label
-      buf[p++] = 0x04; // Block Size (4 bytes)
-      buf[p++] = 0x04; // Disposal Method 1 (do not dispose, leave in place)
-      const delayHundredths = Math.max(1, Math.round(delayMs / 10));
-      buf[p++] = delayHundredths & 0xFF;
-      buf[p++] = (delayHundredths >> 8) & 0xFF;
-      buf[p++] = 0x00; // Transparent Color Index
-      buf[p++] = 0x00; // Block Terminator
-
-      // Image Descriptor (10 bytes)
-      buf[p++] = 0x2C; // Image Separator
-      buf[p++] = 0x00; buf[p++] = 0x00; // Left: 0
-      buf[p++] = 0x00; buf[p++] = 0x00; // Top: 0
-      buf[p++] = frameWidth & 0xFF; buf[p++] = (frameWidth >> 8) & 0xFF;
-      buf[p++] = frameHeight & 0xFF; buf[p++] = (frameHeight >> 8) & 0xFF;
-      buf[p++] = 0x87; // Local Color Table Present, 256 colors (2^(7+1) = 256)
-
-      // Local Color Table (256 * 3 = 768 bytes)
-      for (let i = 0; i < 768; i++) {
-        buf[p++] = palette[i];
-      }
-
-      // LZW Image Data
-      writeLzwCodeStream(8, indexedPixels);
-    }
-
-    function finish() {
-      buf[p++] = 0x3B; // GIF Trailer
-      return new Uint8Array(buf.slice(0, p));
-    }
-
-    return { addFrame, finish };
-  }
-
-  const GIF_PRESETS = {
-    "gif-small": {
-      maxWidth: 320,
-      fps: 10,
-      quality: "small",
-      label: "Small"
-    },
-    "gif-medium": {
-      maxWidth: 480,
-      fps: 12,
-      quality: "medium",
-      label: "Medium"
-    },
-    "gif-original": {
-      maxWidth: 720,
-      fps: 15,
-      quality: "original",
-      label: "Original"
-    }
+    return fn(...args);
   };
-
-  async function convertMp4ToGif(mp4Url, presetKey, onProgress) {
-    const preset = GIF_PRESETS[presetKey] || GIF_PRESETS["gif-medium"];
-    if (onProgress) onProgress(5, "5%");
-
-    // Fetch MP4 buffer via background script to bypass CSP/CORS
-    const fetchRes = await new Promise((resolve) => {
-      chrome.runtime.sendMessage({
-        action: "FETCH_MEDIA_BUFFER",
-        payload: { url: mp4Url }
-      }, (res) => resolve(res));
-    });
-
-    if (!fetchRes || !fetchRes.success || !fetchRes.base64) {
-      throw new Error(fetchRes?.error || "Gagal mengunduh stream video");
-    }
-
-    const binary = atob(fetchRes.base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    const videoBlob = new Blob([bytes], { type: "video/mp4" });
-    const localBlobUrl = URL.createObjectURL(videoBlob);
-
-    if (onProgress) onProgress(15, "15%");
-
-    const video = document.createElement("video");
-    video.muted = true;
-    video.playsInline = true;
-    video.src = localBlobUrl;
-
-    await new Promise((resolve, reject) => {
-      let done = false;
-      const onReady = () => {
-        if (!done) {
-          done = true;
-          resolve();
-        }
-      };
-      video.addEventListener("loadeddata", onReady, { once: true });
-      video.addEventListener("canplay", onReady, { once: true });
-      video.onerror = () => reject(new Error("Gagal memuat video GIF"));
-      setTimeout(onReady, 2500);
-      video.load();
-    });
-
-    const duration = Math.min(video.duration || 3, 30);
-    let origW = video.videoWidth || 480;
-    let origH = video.videoHeight || 480;
-
-    let targetW = origW;
-    let targetH = origH;
-    if (targetW > preset.maxWidth) {
-      targetH = Math.round((targetH * preset.maxWidth) / targetW);
-      targetW = preset.maxWidth;
-    }
-    if (targetW % 2 !== 0) targetW--;
-    if (targetH % 2 !== 0) targetH--;
-    if (targetW <= 0) targetW = 200;
-    if (targetH <= 0) targetH = 200;
-
-    const canvas = document.createElement("canvas");
-    canvas.width = targetW;
-    canvas.height = targetH;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-
-    const encoder = createGifEncoder(targetW, targetH);
-    const fps = preset.fps;
-    const frameStep = 1 / fps;
-    const delayMs = Math.round(frameStep * 1000);
-    const totalFrames = Math.max(1, Math.floor(duration / frameStep));
-    let frameIdx = 0;
-    let capturedThumbUrl = null;
-
-    // Start with a slight offset to avoid pitch-black initial frame before video decoding
-    const startOffset = Math.min(0.06, duration * 0.05);
-
-    for (let currentTime = startOffset; currentTime < duration; currentTime += frameStep) {
-      video.currentTime = Math.min(currentTime, duration - 0.01);
-      await new Promise((resolve) => {
-        const timer = setTimeout(resolve, 300);
-        const onSeeked = () => {
-          clearTimeout(timer);
-          video.removeEventListener("seeked", onSeeked);
-          resolve();
-        };
-        video.addEventListener("seeked", onSeeked, { once: true });
-      });
-
-      ctx.drawImage(video, 0, 0, targetW, targetH);
-      const imgData = ctx.getImageData(0, 0, targetW, targetH);
-      encoder.addFrame(imgData.data, targetW, targetH, delayMs, preset.quality);
-
-      if (!capturedThumbUrl && frameIdx === 0) {
-        try {
-          const tCanvas = document.createElement("canvas");
-          tCanvas.width = 120;
-          tCanvas.height = Math.max(60, Math.round((120 * targetH) / targetW));
-          const tctx = tCanvas.getContext("2d");
-          tctx.drawImage(canvas, 0, 0, tCanvas.width, tCanvas.height);
-          capturedThumbUrl = tCanvas.toDataURL("image/jpeg", 0.75);
-        } catch (e) {}
-      }
-
-      frameIdx++;
-      const pct = Math.min(95, 15 + Math.round((frameIdx / totalFrames) * 80));
-      if (onProgress) onProgress(pct, `${pct}%`);
-
-      // Yield back to browser event loop to keep UI thread 100% fluid & responsive
-      await new Promise(resolve => setTimeout(resolve, 0));
-    }
-
-    if (onProgress) onProgress(98, "98%");
-    const gifBytes = encoder.finish();
-    URL.revokeObjectURL(localBlobUrl);
-
-    let dataUrl = "";
-    try {
-      const gifBlob = new Blob([gifBytes], { type: "image/gif" });
-      dataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result);
-        reader.onerror = () => reject(new Error("Gagal membaca blob GIF"));
-        reader.readAsDataURL(gifBlob);
-      });
-    } catch (e) {
-      let binaryGif = "";
-      const chunkSize = 8192;
-      for (let i = 0; i < gifBytes.length; i += chunkSize) {
-        const chunk = gifBytes.subarray(i, Math.min(i + chunkSize, gifBytes.length));
-        binaryGif += String.fromCharCode.apply(null, chunk);
-      }
-      dataUrl = "data:image/gif;base64," + btoa(binaryGif);
-    }
-
-    return {
-      dataUrl,
-      capturedThumbUrl
-    };
-  }
 
   let activeGifModal = null;
 
@@ -1551,7 +1167,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
 
   // Encode an AudioBuffer into universal 16-bit PCM WAV Blob
   function encodeAudioBufferToWav(buffer) {
-    const numChannels = buffer.numberOfChannels;
+    const numChannels = buffer.numberOfChannels > 1 ? 2 : 1;
     const sampleRate = buffer.sampleRate;
     const bitDepth = 16;
     let interleaved;
@@ -1698,12 +1314,13 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
       const lame = typeof lamejs !== "undefined" ? lamejs : (window.lamejs || globalThis.lamejs);
       if (lame && lame.Mp3Encoder) {
         try {
-          const channels = audioBuffer.numberOfChannels;
+          // Clamp channels to max 2 (lamejs only supports 1=mono or 2=stereo; prevents crash on 5.1 audio)
+          const channels = audioBuffer.numberOfChannels > 1 ? 2 : 1;
           const sampleRate = audioBuffer.sampleRate;
           const mp3encoder = new lame.Mp3Encoder(channels, sampleRate, 192);
 
           const left = audioBuffer.getChannelData(0);
-          const right = channels > 1 ? audioBuffer.getChannelData(1) : null;
+          const right = channels === 2 ? audioBuffer.getChannelData(1) : null;
 
           const leftInt16 = new Int16Array(left.length);
           for (let i = 0; i < left.length; i++) {
@@ -1712,7 +1329,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
           }
 
           let rightInt16 = null;
-          if (right) {
+          if (channels === 2 && right) {
             rightInt16 = new Int16Array(right.length);
             for (let i = 0; i < right.length; i++) {
               const s = Math.max(-1, Math.min(1, right[i]));
@@ -2156,10 +1773,12 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
         throw new Error("URL sumber animasi GIF belum ditemukan");
       }
 
+      const gifAbortController = new AbortController();
       const gifResult = await convertMp4ToGif(mp4Url, choice, (pct, lbl) => {
         updateProgress(pct, lbl);
-      });
-      const dataUrl = typeof gifResult === "string" ? gifResult : gifResult.dataUrl;
+      }, { signal: gifAbortController.signal });
+      const blobUrl = gifResult.blobUrl || null;
+      const dataUrl = gifResult.dataUrl || blobUrl;
       const capturedThumbUrl = gifResult.capturedThumbUrl || null;
 
       // Resolve official Twitter poster thumbnail for the GIF
@@ -2189,6 +1808,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
       chrome.runtime.sendMessage({
         action: "DOWNLOAD_GIF_FILE",
         payload: {
+          blobUrl,
           dataUrl,
           tweetId: targetTweetId,
           author,
@@ -2215,8 +1835,17 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
           }
           if (onDone) onDone(true);
         }
+        if (blobUrl) {
+          setTimeout(() => {
+            try { URL.revokeObjectURL(blobUrl); } catch (e) {}
+          }, 30000);
+        }
       });
     } catch (err) {
+      if (err?.message === "ConversionCancelled") {
+        if (onDone) onDone(false);
+        return;
+      }
       console.error("Gagal mengonversi GIF:", err);
       if (anchorEl) {
         const span = anchorEl.querySelector("span");
@@ -3794,6 +3423,16 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
 
     tweetArticles.forEach((article) => {
       try {
+        // FAST-PATH: Jika tweet ini sudah dipindai dan tombol aksi serta badge-nya masih utuh,
+        // lewati pemindaian DOM mendalam jika tidak ada elemen media baru yang belum ditangani.
+        if (article.getAttribute("data-vault-scanned") === "true") {
+          const hasBtn = article.querySelector(".x-tweet-dl-wrapper");
+          const hasUnbadged = article.querySelector('video:not([data-vault-handled]), div[data-testid="tweetPhoto"]:not([data-vault-handled]), div[data-testid="videoPlayer"]:not([data-vault-handled])');
+          if (hasBtn && !hasUnbadged) {
+            return;
+          }
+        }
+
         // 1. Gather outer tweet ID from the primary <time> timestamp in the header
         const timeLinks = Array.from(article.querySelectorAll('time')).map(t => t.closest('a[href*="/status/"]')).filter(Boolean);
         const outerTimeLink = timeLinks[0];
@@ -4068,6 +3707,9 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
             badge.style.display = "none";
           }
 
+          vContainer.setAttribute("data-vault-handled", "true");
+          const innerV = vContainer.querySelector("video");
+          if (innerV) innerV.setAttribute("data-vault-handled", "true");
           vContainer.appendChild(badge);
         });
 
@@ -4132,6 +3774,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
             badge.style.display = "none";
           }
 
+          photoWrap.setAttribute("data-vault-handled", "true");
           photoWrap.appendChild(badge);
         });
 
@@ -4374,6 +4017,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
             if (staleActionBtn) staleActionBtn.remove();
           }
         }
+        article.setAttribute("data-vault-scanned", "true");
       } catch (err) {
         console.error("[X-Vault] Error processing tweet article:", err);
       }
@@ -4856,30 +4500,47 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
 
   // High-performance DOM scanner with RAF throttling & idle debounce
   let scanScheduled = false;
+  let lastScanTimestamp = 0;
+  let scanThrottleTimeout = null;
   let metadataTimer = null;
+  const SCAN_THROTTLE_INTERVAL = 110; // ms: optimal for human perception & 60-120fps scrolling
+
+  function executeScanNow() {
+    scanScheduled = false;
+    lastScanTimestamp = performance.now();
+    try {
+      ensureMediaOverlayStyles();
+    } catch (e) {}
+    try {
+      injectTwitterDownloadButtons();
+    } catch (e) {
+      console.error("[X-Vault] Scan error:", e);
+    }
+    try {
+      injectLightboxDownloadButtons();
+    } catch (e) {
+      console.error("[X-Vault] Lightbox scan error:", e);
+    }
+    try {
+      autoRevealSensitiveMedia();
+    } catch (e) {}
+  }
 
   function scheduleFullScan() {
     if (scanScheduled) return;
     scanScheduled = true;
-    requestAnimationFrame(() => {
-      scanScheduled = false;
-      try {
-        ensureMediaOverlayStyles();
-      } catch (e) {}
-      try {
-        injectTwitterDownloadButtons();
-      } catch (e) {
-        console.error("[X-Vault] Scan error:", e);
-      }
-      try {
-        injectLightboxDownloadButtons();
-      } catch (e) {
-        console.error("[X-Vault] Lightbox scan error:", e);
-      }
-      try {
-        autoRevealSensitiveMedia();
-      } catch (e) {}
-    });
+
+    const now = performance.now();
+    const elapsed = now - lastScanTimestamp;
+
+    if (elapsed >= SCAN_THROTTLE_INTERVAL) {
+      requestAnimationFrame(executeScanNow);
+    } else {
+      clearTimeout(scanThrottleTimeout);
+      scanThrottleTimeout = setTimeout(() => {
+        requestAnimationFrame(executeScanNow);
+      }, SCAN_THROTTLE_INTERVAL - elapsed);
+    }
 
     if (!metadataTimer) {
       metadataTimer = setTimeout(() => {
@@ -4891,16 +4552,32 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
     }
   }
 
+  // Observer with feedback-loop guard (ignores mutations produced by X-Vault UI itself)
   const twObserver = new MutationObserver((mutations) => {
     let shouldScan = false;
     for (let i = 0; i < mutations.length; i++) {
-      if (mutations[i].addedNodes.length > 0) {
-        shouldScan = true;
-        break;
+      const mut = mutations[i];
+      if (mut.addedNodes.length > 0) {
+        for (let j = 0; j < mut.addedNodes.length; j++) {
+          const node = mut.addedNodes[j];
+          if (node.nodeType === 1) {
+            // Ignore mutations produced directly by X-Vault UI
+            if (node.classList?.contains("x-tweet-dl-wrapper") || 
+                node.classList?.contains("x-media-corner-badge") || 
+                node.classList?.contains("x-tweet-header-dl-all-wrapper") ||
+                node.classList?.contains("x-quote-dl-all-wrapper") ||
+                node.id === "x-vault-media-styles") {
+              continue;
+            }
+            shouldScan = true;
+            break;
+          }
+        }
+        if (shouldScan) break;
       }
-      if (mutations[i].removedNodes.length > 0) {
-        for (let j = 0; j < mutations[i].removedNodes.length; j++) {
-          const node = mutations[i].removedNodes[j];
+      if (mut.removedNodes.length > 0) {
+        for (let j = 0; j < mut.removedNodes.length; j++) {
+          const node = mut.removedNodes[j];
           if (node.nodeType === 1 && (node.classList?.contains("x-tweet-dl-wrapper") || node.querySelector?.(".x-tweet-dl-wrapper, .x-media-corner-badge, .x-tweet-header-dl-all-wrapper, .x-quote-dl-all-wrapper"))) {
             shouldScan = true;
             break;
@@ -4914,9 +4591,14 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
     }
   });
 
+  let fallbackHeartbeatTimer = null;
+
   window.__xVaultCleanup = function () {
     try { twObserver.disconnect(); } catch (e) {}
-    document.querySelectorAll(".x-tweet-dl-wrapper, .x-media-corner-badge, .x-tweet-header-dl-all-wrapper, .x-quote-dl-all-wrapper, .x-lightbox-toolbar").forEach(el => el.remove());
+    clearTimeout(scanThrottleTimeout);
+    clearTimeout(metadataTimer);
+    if (fallbackHeartbeatTimer) clearInterval(fallbackHeartbeatTimer);
+    document.querySelectorAll(".x-tweet-dl-wrapper, .x-media-corner-badge, .x-tweet-header-dl-all-wrapper, .x-quote-dl-all-wrapper, .x-lightbox-toolbar, .x-gif-picker-popup, .x-quality-picker-modal").forEach(el => el.remove());
   };
 
   function startObserverAndScan() {
@@ -4950,7 +4632,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
   });
 
   // Low-frequency fallback heartbeat (only when tab is active and visible)
-  setInterval(() => {
+  fallbackHeartbeatTimer = setInterval(() => {
     if (!document.hidden) {
       scheduleFullScan();
     }

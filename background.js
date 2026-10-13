@@ -215,10 +215,21 @@ function sanitizeFilename(name) {
   if (!name) return "video_" + Date.now();
   let sanitized = name.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").trim();
   sanitized = sanitized.replace(/\s+/g, " ");
+  sanitized = sanitized.replace(/_+/g, "_");
+  sanitized = sanitized.replace(/^_+|_+$/g, "");
   if (sanitized.length > 120) {
     sanitized = sanitized.substring(0, 120);
   }
-  return sanitized;
+  return sanitized || "media_" + Date.now();
+}
+
+function sanitizeDirectoryName(name) {
+  if (!name) return "X_Vault_Downloads";
+  let sanitized = name.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").trim();
+  sanitized = sanitized.replace(/\s+/g, "_");
+  sanitized = sanitized.replace(/_+/g, "_");
+  sanitized = sanitized.replace(/^[\s._]+|[\s._]+$/g, "");
+  return sanitized || "X_Vault_Downloads";
 }
 
 function cleanTitleString(rawTitle) {
@@ -412,7 +423,7 @@ async function getFormattedTwitterFilename(item, customPayload = null) {
     targetPath = `${sanitizeFilename(cleanAuthor)}/${targetPath}`;
   }
   if (settings.createSubDir !== false) {
-    const sub = sanitizeFilename((settings.subDirName || "X_Vault_Downloads").trim());
+    const sub = sanitizeDirectoryName((settings.subDirName || "X_Vault_Downloads").trim());
     if (sub) targetPath = `${sub}/${targetPath}`;
   }
 
@@ -443,6 +454,7 @@ async function getFormattedTwitterImageFilename(payload, ext = "jpg") {
   let finalName = "";
 
   if (Array.isArray(settings.activePatternTags) && settings.activePatternTags.length > 0) {
+    const hasSerialTag = settings.activePatternTags.includes("{serial}");
     const parts = settings.activePatternTags.map(t => {
       switch (t) {
         case "{account}": return cleanAuthor || "@user";
@@ -461,10 +473,15 @@ async function getFormattedTwitterImageFilename(payload, ext = "jpg") {
       }
     }).filter(Boolean);
 
-    finalName = sanitizeFilename(`${parts.join("-")}.${ext}`);
+    const baseName = parts.join("-");
+    if (!hasSerialTag && payload.index !== undefined) {
+      finalName = sanitizeFilename(`${baseName}_${serialNo}.${ext}`);
+    } else {
+      finalName = sanitizeFilename(`${baseName}.${ext}`);
+    }
   } else {
     const filenameFormat = settings.filenameFormat || "author_text";
-    const indexStr = payload.index !== undefined ? `_photo${payload.index + 1}` : "";
+    const indexStr = payload.index !== undefined ? `_${serialNo}` : "";
     if (filenameFormat === "author_text" && cleanAuthor && cleanText) {
       finalName = `${cleanAuthor} - ${cleanText}${indexStr}.${ext}`;
     } else if (filenameFormat === "text_only" && cleanText) {
@@ -482,7 +499,7 @@ async function getFormattedTwitterImageFilename(payload, ext = "jpg") {
     targetPath = `${sanitizeFilename(cleanAuthor)}/${targetPath}`;
   }
   if (settings.createSubDir !== false) {
-    const sub = sanitizeFilename((settings.subDirName || "X_Vault_Downloads").trim());
+    const sub = sanitizeDirectoryName((settings.subDirName || "X_Vault_Downloads").trim());
     if (sub) targetPath = `${sub}/${targetPath}`;
   }
 
@@ -1029,7 +1046,8 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
         chrome.downloads.download({
           url: downloadUrl,
           filename: fname,
-          saveAs: askSave
+          saveAs: askSave,
+          conflictAction: "uniquify"
         }, (downloadId) => {
           if (downloadId) {
             intendedDownloadFilenames.set(downloadId, fname);
@@ -1064,7 +1082,8 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
               chrome.downloads.download({
                 url: itemToDownload.thumbnail,
                 filename: thumbName,
-                saveAs: false
+                saveAs: false,
+                conflictAction: "uniquify"
               }, (thumbDlId) => {
                 if (thumbDlId) {
                   intendedDownloadFilenames.set(thumbDlId, thumbName);
@@ -1112,7 +1131,8 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
       chrome.downloads.download({
         url: blobUrl,
         filename: fname,
-        saveAs: askSave
+        saveAs: askSave,
+        conflictAction: "uniquify"
       }, (downloadId) => {
         if (downloadId) {
           intendedDownloadFilenames.set(downloadId, fname);
@@ -1163,7 +1183,8 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
       chrome.downloads.download({
         url: highResUrl,
         filename: fname,
-        saveAs: askSave
+        saveAs: askSave,
+        conflictAction: "uniquify"
       }, (downloadId) => {
         if (downloadId) {
           intendedDownloadFilenames.set(downloadId, fname);

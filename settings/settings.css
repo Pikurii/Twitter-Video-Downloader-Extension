@@ -1637,3 +1637,94 @@ body.vault-dashboard-body {
   border-color: #38bdf8;
   color: #38bdf8;
 }
+
+/* Inline Validation Warning for Sub-directory */
+.input-inline-warning {
+  margin-top: 8px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #ef4444;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  animation: fadeInWarning 0.2s ease;
+}
+
+@keyframes fadeInWarning {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Storage Tips Banner Card */
+.tip-banner-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(29, 155, 240, 0.06);
+  border: 1px solid rgba(29, 155, 240, 0.2);
+  border-radius: var(--radius-md, 8px);
+  margin-top: 2px;
+}
+
+.tip-banner-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #1d9bf0;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.tip-banner-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tip-banner-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main, #0f172a);
+}
+
+.tip-banner-desc {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-muted, #64748b);
+}
+
+[data-theme="dark"] .tip-banner-card {
+  background: rgba(29, 155, 240, 0.08);
+  border-color: rgba(56, 189, 248, 0.25);
+}
+
+[data-theme="dark"] .tip-banner-title {
+  color: #f8fafc;
+}
+
+[data-theme="dark"] .tip-banner-desc {
+  color: #94a3b8;
+}
+
+/* Backup & Restore Actions Row */
+.backup-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.backup-actions-row .btn-tool-secondary {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+

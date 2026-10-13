@@ -2536,6 +2536,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
 
     const totalCount = mediaList.length;
     let completedCount = 0;
+    let successCount = 0;
     let isFinished = false;
 
     const finish = (success) => {
@@ -2555,30 +2556,32 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
         },
         onComplete: () => {
           completedCount++;
+          successCount++;
           if (onProgress) {
             onProgress({ completedCount, totalCount, currentItemIdx: idx, itemPercent: 100 });
           }
           if (completedCount >= totalCount) {
-            finish(true);
+            finish(successCount > 0);
           }
         },
         onError: () => {
           completedCount++;
           if (completedCount >= totalCount) {
-            finish(completedCount > 0);
+            finish(successCount > 0);
           }
         }
       });
 
+      // Staggered queue delay of 500ms to avoid browser download throttling
       setTimeout(() => {
         downloadMediaItem(item, targetTid, targetInfo, pageUrl, itemReqId);
-      }, idx * 280);
+      }, idx * 500);
     });
 
-    // Safety watchdog: ensure onDone is always called even if browser events miss a callback
+    // Generous safety watchdog (60s base) so slower connections don't prematurely time out
     setTimeout(() => {
-      finish(completedCount > 0);
-    }, 4500 + totalCount * 1200);
+      finish(completedCount > 0 || successCount > 0);
+    }, Math.max(60000, 15000 + totalCount * 10000));
   }
 
   // Inject clean media hover styles (hides corner badges & download-all badges until mouse hover)
@@ -3282,11 +3285,11 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
     const outerInfo = extractTweetInfo(article) || btn._latestTweetInfo || { author: "", screenName: "", text: "" };
     const timeLinks = Array.from(article.querySelectorAll('time')).map(t => t.closest('a[href*="/status/"]')).filter(Boolean);
     const outerTimeLink = timeLinks[0];
-    let outerTweetId = outerTimeLink?.href?.match(/\/status\/(\d+)/)?.[1] ||
+    let outerTweetId = btn._latestTweetId ||
+                       outerTimeLink?.href?.match(/\/status\/(\d+)/)?.[1] ||
                        article.querySelector('a[href*="/status/"]')?.href?.match(/\/status\/(\d+)/)?.[1] ||
-                       btn._latestTweetId ||
                        window.location.pathname.match(/\/status\/(\d+)/)?.[1] || null;
-    const pageUrl = outerTimeLink?.href || btn._latestPageUrl || window.location.href;
+    const pageUrl = btn._latestPageUrl || outerTimeLink?.href || window.location.href;
 
     const allStatusLinks = Array.from(article.querySelectorAll('a[href*="/status/"]'));
     const allTweetIds = Array.from(new Set([
@@ -3427,6 +3430,13 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
       showTwitterToast(currentLang === "en" ? "No media found in tweet" : "Tidak ada media ditemukan");
       return;
     }
+
+    // Ensure all media items in list have valid indices and IDs
+    mediaList.forEach((item, idx) => {
+      if (item.index === undefined) item.index = idx;
+      if (!item.targetTweetId) item.targetTweetId = outerTweetId;
+      if (!item.outerTweetId) item.outerTweetId = outerTweetId;
+    });
 
     // Single Video handling (respects 'ask' quality setting)
     if (mediaList.length === 1 && mediaList[0].type === "video") {

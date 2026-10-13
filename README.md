@@ -76,6 +76,10 @@ Engineered under Chrome Manifest V3 specifications with a strict privacy-first a
 
 ## Latest Updates & Changelog (v2.0.0)
 
+- **Settings Backup & Restore (JSON Export & Import)**: Added one-click export and import for all extension settings and custom filename templates to JSON files for easy backup and migration.
+- **Sub-Directory Input Validation & Smart Sanitization**: Added real-time character blocking for forbidden OS folder symbols (`< > : " / \ | ? *`) and clean sanitization that eliminates ugly double underscores.
+- **Multi-Media Batch Download Reliability**: Fixed timeline action bar download errors when posts have multiple photos or videos by implementing collision-free serial numbering (`_01`, `_02`), safe download pacing (500ms queue intervals), and generous download progress watchdogs.
+- **External Drive Storage Guidance**: Added an in-app tips banner explaining browser download sandbox policies and how to direct 1-click downloads to Drive D: or external hard drives without Save As dialogs.
 - **Authentic MP3 Audio Extraction**: Integrated `lame.min.js` and Web Audio API (`AudioContext.decodeAudioData`) to extract pure audio with zero video tracks, resolving the issue where audio downloads were previously 1080p MP4 files renamed to `.mp3`.
 - **Full Resolution Tiering (270p - 1080p)**: Added 360p and 270p options in the Control Hub and floating resolution chooser modal.
 - **Vertical / Portrait Video Resolution Fix**: Fixed dimension parsing using `minDim = Math.min(width, height)` so that 270x480 portrait videos download strictly as 270p instead of defaulting to 1080p.

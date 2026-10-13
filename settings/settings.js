@@ -26,7 +26,10 @@ document.addEventListener("DOMContentLoaded", () => {
       subDirTitle: "Buat sub-direktori khusus",
       subDirDesc: "Simpan berkas unduhan ke dalam sub-folder khusus di dalam folder default Downloads browser.",
       subDirPlaceholder: "Nama folder...",
+      subDirWarningInvalid: "Karakter < > : \" / \\ | ? * tidak diperbolehkan untuk nama folder.",
       btnSave: "SIMPAN",
+      tipDriveTitle: "Tips Menyimpan Otomatis ke Drive Lain (Drive D, dll.)",
+      tipDriveDesc: "Browser membatasi penyimpanan otomatis hanya ke folder Downloads utama. Jika ingin semua unduhan otomatis tersimpan langsung ke drive D atau harddisk eksternal tanpa dialog Save As, ubah lokasi unduhan bawaan browser Anda melalui menu pengaturan browser.",
       groupByAccountTitle: "Kelompokkan unduhan berdasarkan akun",
       groupByAccountDesc: "Otomatis pisahkan berkas ke dalam sub-folder tersendiri untuk setiap akun Twitter (@username).",
       patternTitle: "Penyusun Pola Nama Berkas (Filename Pattern)",
@@ -41,6 +44,12 @@ document.addEventListener("DOMContentLoaded", () => {
       themeLight: "Terang (Light)",
       langTitle: "Bahasa Antarmuka",
       langDesc: "Pilih bahasa tampilan untuk ekstensi, popup, tombol di linimasa, dan notifikasi.",
+      backupSettingsTitle: "Cadangkan & Impor Pengaturan",
+      backupSettingsDesc: "Ekspor semua preferensi konfigurasi (kualitas, pola nama berkas, sub-folder, tema) ke berkas JSON atau impor kembali kapan saja.",
+      btnExportSettings: "Ekspor Pengaturan",
+      btnExportSettingsText: "Ekspor Pengaturan",
+      btnImportSettings: "Impor Pengaturan",
+      btnImportSettingsText: "Impor Pengaturan",
       btnResetGeneral: "Reset Pengaturan Umum ke Default",
 
       // Tab 2: Features
@@ -129,6 +138,9 @@ document.addEventListener("DOMContentLoaded", () => {
       toastExportSuccess: "Riwayat berhasil diekspor ke format JSON.",
       toastImportSuccess: "Riwayat unduhan berhasil diimpor!",
       toastImportInvalid: "Format berkas JSON tidak valid!",
+      toastExportSettingsSuccess: "Pengaturan berhasil diekspor ke format JSON!",
+      toastImportSettingsSuccess: "Pengaturan berhasil diimpor!",
+      toastImportSettingsInvalid: "Format berkas JSON pengaturan tidak valid!",
       confirmClearHistory: "Yakin ingin menghapus seluruh riwayat unduhan?",
       confirmResetGeneral: "Reset semua pengaturan umum ke default?",
       confirmResetRank: "Reset level dan statistik unduhan ke 0?",
@@ -157,7 +169,10 @@ document.addEventListener("DOMContentLoaded", () => {
       subDirTitle: "Create dedicated sub-folder",
       subDirDesc: "Save downloaded media into a dedicated sub-folder inside your browser's default Downloads directory.",
       subDirPlaceholder: "Sub-folder name...",
+      subDirWarningInvalid: "Characters < > : \" / \\ | ? * are not allowed in folder names.",
       btnSave: "SAVE",
+      tipDriveTitle: "Tips for Saving Directly to Another Drive (Drive D, etc.)",
+      tipDriveDesc: "Browser security limits automatic saving strictly to the default Downloads directory. If you want all downloads automatically routed to drive D or an external drive without Save As prompts, change your browser's default download location via your browser settings.",
       groupByAccountTitle: "Group downloads by account",
       groupByAccountDesc: "Automatically separate files into individual sub-folders for each Twitter account (@username).",
       patternTitle: "Filename Pattern Builder",
@@ -172,6 +187,12 @@ document.addEventListener("DOMContentLoaded", () => {
       themeLight: "Light Mode",
       langTitle: "Interface Language",
       langDesc: "Choose display language for the extension, popup, timeline buttons, and notifications.",
+      backupSettingsTitle: "Backup & Restore Settings",
+      backupSettingsDesc: "Export all configuration preferences (quality, filename patterns, sub-folders, theme) to a JSON file or restore them anytime.",
+      btnExportSettings: "Export Settings",
+      btnExportSettingsText: "Export Settings",
+      btnImportSettings: "Import Settings",
+      btnImportSettingsText: "Import Settings",
       btnResetGeneral: "Reset General Settings to Default",
 
       // Tab 2: Features
@@ -260,6 +281,9 @@ document.addEventListener("DOMContentLoaded", () => {
       toastExportSuccess: "History exported as JSON file.",
       toastImportSuccess: "Download history imported successfully!",
       toastImportInvalid: "Invalid JSON history file format!",
+      toastExportSettingsSuccess: "Settings exported successfully as JSON file!",
+      toastImportSettingsSuccess: "Settings imported successfully!",
+      toastImportSettingsInvalid: "Invalid settings JSON file format!",
       confirmClearHistory: "Are you sure you want to clear all download history?",
       confirmResetGeneral: "Reset general settings to default?",
       confirmResetRank: "Reset level and download stats to 0?",
@@ -368,9 +392,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const subDirInputRow = document.getElementById("subDirInputRow");
   const inputSubDirName = document.getElementById("inputSubDirName");
   const btnSaveSubDir = document.getElementById("btnSaveSubDir");
+  const subDirWarning = document.getElementById("subDirWarning");
   const toggleGroupByAccount = document.getElementById("toggleGroupByAccount");
   const themeChoices = document.getElementById("themeChoices");
   const selectLanguage = document.getElementById("selectLanguage");
+  const btnExportSettings = document.getElementById("btnExportSettings");
+  const btnImportSettings = document.getElementById("btnImportSettings");
+  const inputImportSettings = document.getElementById("inputImportSettings");
   const btnResetGeneral = document.getElementById("btnResetGeneral");
 
   // DOM Elements - Pattern Builder
@@ -392,7 +420,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const badgeMediaChoices = document.getElementById("badgeMediaChoices");
   const badgeMediaTypesRow = document.getElementById("badgeMediaTypesRow");
   const toggleHeaderDlAll = document.getElementById("toggleHeaderDlAll");
-  const toggleKeyboardShortcut = document.getElementById("toggleKeyboardShortcut");
 
   // DOM Elements - History Tab
   const metricTotalDrops = document.getElementById("metricTotalDrops");
@@ -1348,28 +1375,57 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  if (btnSaveSubDir) {
-    btnSaveSubDir.addEventListener("click", () => {
-      if (inputSubDirName) {
-        currentSettings.subDirName = inputSubDirName.value.trim() || "X_Vault_Downloads";
-        saveCurrentSettings();
-      }
-    });
+  const FORBIDDEN_DIR_CHARS_REGEX = /[<>:"/\\|?*\x00-\x1F]/g;
+
+  function cleanSubDirValue(val) {
+    if (!val) return "X_Vault_Downloads";
+    let clean = val.replace(FORBIDDEN_DIR_CHARS_REGEX, "").trim();
+    clean = clean.replace(/\s+/g, "_").replace(/_+/g, "_");
+    clean = clean.replace(/^[\s._]+|[\s._]+$/g, "");
+    return clean || "X_Vault_Downloads";
   }
 
   if (inputSubDirName) {
     inputSubDirName.addEventListener("input", () => {
-      currentSettings.subDirName = inputSubDirName.value.trim() || "X_Vault_Downloads";
+      if (FORBIDDEN_DIR_CHARS_REGEX.test(inputSubDirName.value)) {
+        inputSubDirName.value = inputSubDirName.value.replace(FORBIDDEN_DIR_CHARS_REGEX, "");
+        if (subDirWarning) {
+          subDirWarning.style.display = "flex";
+          setTimeout(() => {
+            if (subDirWarning) subDirWarning.style.display = "none";
+          }, 3500);
+        }
+      }
+      currentSettings.subDirName = cleanSubDirValue(inputSubDirName.value);
       saveCurrentSettings();
     });
+
     inputSubDirName.addEventListener("blur", () => {
-      currentSettings.subDirName = inputSubDirName.value.trim() || "X_Vault_Downloads";
+      const sanitized = cleanSubDirValue(inputSubDirName.value);
+      inputSubDirName.value = sanitized;
+      currentSettings.subDirName = sanitized;
       saveCurrentSettings();
     });
+
     inputSubDirName.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
-        currentSettings.subDirName = inputSubDirName.value.trim() || "X_Vault_Downloads";
+        const sanitized = cleanSubDirValue(inputSubDirName.value);
+        inputSubDirName.value = sanitized;
+        currentSettings.subDirName = sanitized;
         saveCurrentSettings();
+        showToast(t("toastSaved"));
+      }
+    });
+  }
+
+  if (btnSaveSubDir) {
+    btnSaveSubDir.addEventListener("click", () => {
+      if (inputSubDirName) {
+        const sanitized = cleanSubDirValue(inputSubDirName.value);
+        inputSubDirName.value = sanitized;
+        currentSettings.subDirName = sanitized;
+        saveCurrentSettings();
+        showToast(t("toastSaved"));
       }
     });
   }
@@ -1428,6 +1484,87 @@ document.addEventListener("DOMContentLoaded", () => {
         renderPatternBuilder();
         saveCurrentSettings();
       }
+    });
+  }
+
+  // 7. Backup & Restore Settings (Export & Import)
+  if (btnExportSettings) {
+    btnExportSettings.addEventListener("click", () => {
+      try {
+        const exportObj = {
+          app: "X-Vault",
+          type: "settings_backup",
+          version: "2.0.0",
+          exportDate: new Date().toISOString(),
+          settings: { ...currentSettings }
+        };
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportObj, null, 2));
+        const dlAnchor = document.createElement("a");
+        dlAnchor.setAttribute("href", dataStr);
+        dlAnchor.setAttribute("download", `x_vault_settings_${new Date().toISOString().split("T")[0]}.json`);
+        document.body.appendChild(dlAnchor);
+        dlAnchor.click();
+        dlAnchor.remove();
+        showToast(t("toastExportSettingsSuccess"));
+      } catch (err) {
+        console.error("Export settings error:", err);
+      }
+    });
+  }
+
+  if (btnImportSettings && inputImportSettings) {
+    btnImportSettings.addEventListener("click", () => {
+      inputImportSettings.click();
+    });
+
+    inputImportSettings.addEventListener("change", (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const parsed = JSON.parse(event.target.result);
+          const incoming = parsed.settings || parsed;
+
+          if (typeof incoming !== "object" || incoming === null) {
+            showToast(t("toastImportSettingsInvalid"));
+            inputImportSettings.value = "";
+            return;
+          }
+
+          const validKeys = [
+            "theme", "language", "askSaveLocation", "createSubDir", "subDirName",
+            "groupByAccount", "activePatternTags", "autoRevealNsfw", "downloadThumbnail",
+            "gifFormat", "defaultQuality", "inTweetBtn", "mediaCornerBadges",
+            "badgeMediaTypes", "headerDlAll", "historyLogging"
+          ];
+
+          let importedCount = 0;
+          validKeys.forEach((k) => {
+            if (incoming[k] !== undefined) {
+              currentSettings[k] = incoming[k];
+              importedCount++;
+            }
+          });
+
+          if (importedCount === 0) {
+            showToast(t("toastImportSettingsInvalid"));
+            inputImportSettings.value = "";
+            return;
+          }
+
+          saveCurrentSettings();
+          populateSettingsUI(currentSettings);
+          showToast(t("toastImportSettingsSuccess"));
+        } catch (err) {
+          console.error("Import settings error:", err);
+          showToast(t("toastImportSettingsInvalid"));
+        } finally {
+          inputImportSettings.value = "";
+        }
+      };
+      reader.readAsText(file);
     });
   }
 
@@ -1604,53 +1741,62 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       }
 
-      // Populate Input Values
-      if (toggleAskSave) toggleAskSave.checked = Boolean(currentSettings.askSaveLocation);
-      if (toggleCreateSubDir) {
-        toggleCreateSubDir.checked = currentSettings.createSubDir !== false;
-        updateSubDirInputState(toggleCreateSubDir.checked);
-      }
-      if (inputSubDirName) inputSubDirName.value = currentSettings.subDirName || "X_Vault_Downloads";
-      if (toggleGroupByAccount) toggleGroupByAccount.checked = Boolean(currentSettings.groupByAccount);
-      if (selectLanguage) selectLanguage.value = currentSettings.language || "id";
-
-      if (toggleFeaturesNsfw) toggleFeaturesNsfw.checked = currentSettings.autoRevealNsfw !== false;
-      if (toggleDownloadThumbnail) toggleDownloadThumbnail.checked = Boolean(currentSettings.downloadThumbnail);
-      if (selectDefaultQuality) selectDefaultQuality.value = currentSettings.defaultQuality || "native";
-      if (toggleInTweetBtn) toggleInTweetBtn.checked = currentSettings.inTweetBtn !== false;
-      if (toggleMediaBadges) {
-        toggleMediaBadges.checked = currentSettings.mediaCornerBadges !== false;
-        updateMediaBadgesRowState(toggleMediaBadges.checked);
-      }
-      updateBadgeMediaChoicesUI();
-      if (toggleHeaderDlAll) toggleHeaderDlAll.checked = currentSettings.headerDlAll !== false;
-      if (toggleKeyboardShortcut) toggleKeyboardShortcut.checked = currentSettings.keyboardShortcut !== false;
-      if (toggleHistoryLogging) toggleHistoryLogging.checked = currentSettings.historyLogging !== false;
-
-      // GIF choice active pill
-      if (gifFormatChoices) {
-        let targetVal = currentSettings.gifFormat || "ask";
-        if (targetVal === "gif") targetVal = "gif-medium";
-        gifFormatChoices.querySelectorAll(".choice-pill").forEach(p => {
-          p.classList.toggle("active", p.getAttribute("data-value") === targetVal);
-        });
-      }
-
-      // Video Quality choice active pill
-      if (videoQualityChoices) {
-        const targetQ = currentSettings.defaultQuality || "native";
-        videoQualityChoices.querySelectorAll(".choice-pill").forEach(p => {
-          p.classList.toggle("active", p.getAttribute("data-value") === targetQ);
-        });
-      }
-
-      applyTheme(currentSettings.theme || "dark");
-      applyLanguage(currentSettings.language || "id");
+      populateSettingsUI(currentSettings);
     });
   } else {
     // Standalone / preview environment fallback
-    applyTheme(currentSettings.theme || "dark");
-    applyLanguage(currentSettings.language || "id");
+    populateSettingsUI(currentSettings);
+  }
+
+  function populateSettingsUI(settings) {
+    if (toggleAskSave) toggleAskSave.checked = Boolean(settings.askSaveLocation);
+    if (toggleCreateSubDir) {
+      toggleCreateSubDir.checked = settings.createSubDir !== false;
+      updateSubDirInputState(toggleCreateSubDir.checked);
+    }
+    if (inputSubDirName) inputSubDirName.value = settings.subDirName || "X_Vault_Downloads";
+    if (toggleGroupByAccount) toggleGroupByAccount.checked = Boolean(settings.groupByAccount);
+    if (selectLanguage) selectLanguage.value = settings.language || "id";
+
+    if (toggleFeaturesNsfw) toggleFeaturesNsfw.checked = settings.autoRevealNsfw !== false;
+    if (toggleDownloadThumbnail) toggleDownloadThumbnail.checked = Boolean(settings.downloadThumbnail);
+    if (selectDefaultQuality) selectDefaultQuality.value = settings.defaultQuality || "native";
+    if (toggleInTweetBtn) toggleInTweetBtn.checked = settings.inTweetBtn !== false;
+    if (toggleMediaBadges) {
+      toggleMediaBadges.checked = settings.mediaCornerBadges !== false;
+      updateMediaBadgesRowState(toggleMediaBadges.checked);
+    }
+    updateBadgeMediaChoicesUI();
+    if (toggleHeaderDlAll) toggleHeaderDlAll.checked = settings.headerDlAll !== false;
+    if (toggleHistoryLogging) toggleHistoryLogging.checked = settings.historyLogging !== false;
+
+    // Theme choices active pill
+    if (themeChoices) {
+      themeChoices.querySelectorAll(".choice-pill").forEach(p => {
+        p.classList.toggle("active", p.getAttribute("data-value") === (settings.theme || "dark"));
+      });
+    }
+
+    // GIF choice active pill
+    if (gifFormatChoices) {
+      let targetVal = settings.gifFormat || "ask";
+      if (targetVal === "gif") targetVal = "gif-medium";
+      gifFormatChoices.querySelectorAll(".choice-pill").forEach(p => {
+        p.classList.toggle("active", p.getAttribute("data-value") === targetVal);
+      });
+    }
+
+    // Video Quality choice active pill
+    if (videoQualityChoices) {
+      const targetQ = settings.defaultQuality || "native";
+      videoQualityChoices.querySelectorAll(".choice-pill").forEach(p => {
+        p.classList.toggle("active", p.getAttribute("data-value") === targetQ);
+      });
+    }
+
+    applyTheme(settings.theme || "dark");
+    applyLanguage(settings.language || "id");
+    renderPatternBuilder();
   }
 
   // Listen for storage changes (e.g. theme, language, or stats updated from popup / background)

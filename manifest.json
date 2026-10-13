@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "X Video Downloader",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Unduh video, gambar / foto HD, animasi GIF, dan ekstrak audio MP3 dari Twitter / X secara instan dan bebas iklan. Dilengkapi filter NSFW dan pelacak unduhan. Dibuat oleh Pikuri.",
   "author": "Pikuri (https://github.com/Pikurii)",
   "homepage_url": "https://github.com/Pikurii",

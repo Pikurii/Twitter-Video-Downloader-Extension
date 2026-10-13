@@ -74,9 +74,13 @@ Engineered under Chrome Manifest V3 specifications with a strict privacy-first a
 
 ---
 
-## Latest Updates & Changelog (v2.0.0)
+## Latest Updates & Changelog (v2.2.0)
 
-- **Settings Backup & Restore (JSON Export & Import)**: Added one-click export and import for all extension settings and custom filename templates to JSON files for easy backup and migration.
+- **Rebranded to X-Vault**: Official identity upgrade featuring a sleek, modern minimalist geometric logo with instant download arrow symbolism and seamless dark/light squircle antialiasing.
+- **Real-Time Cross-Tab Synchronization**: Instant live settings and theme updates across all open Twitter/X tabs and Control Hub views without requiring manual page refresh (F5).
+- **Default Quality & GIF "Ask Every Time"**: Ensured resolution and format prompts respect user preference on every download by default.
+- **Keyboard Shortcut (`D`) Toggle**: Added dedicated settings control card to toggle in-timeline one-key media downloading.
+- **Robust Storage Persistence**: Safe merging of settings on install/reload to prevent accidental resets.
 - **Sub-Directory Input Validation & Smart Sanitization**: Added real-time character blocking for forbidden OS folder symbols (`< > : " / \ | ? *`) and clean sanitization that eliminates ugly double underscores.
 - **Multi-Media Batch Download Reliability**: Fixed timeline action bar download errors when posts have multiple photos or videos by implementing collision-free serial numbering (`_01`, `_02`), safe download pacing (500ms queue intervals), and generous download progress watchdogs.
 - **External Drive Storage Guidance**: Added an in-app tips banner explaining browser download sandbox policies and how to direct 1-click downloads to Drive D: or external hard drives without Save As dialogs.

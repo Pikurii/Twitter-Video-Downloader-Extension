@@ -119,7 +119,7 @@ document.addEventListener("DOMContentLoaded", () => {
     autoRevealNsfw: true,
     inTweetBtn: true,
     mediaCornerBadges: true,
-    defaultQuality: "native",
+    defaultQuality: "ask",
     filenameFormat: "author_text"
   };
 
@@ -410,9 +410,19 @@ document.addEventListener("DOMContentLoaded", () => {
   if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.onChanged) {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === "local" && changes.settings?.newValue) {
-        currentSettings = { ...currentSettings, ...changes.settings.newValue };
-        applyTheme(currentSettings.theme || "dark");
-        applyLanguage(currentSettings.language || "id");
+        const newSettings = changes.settings.newValue;
+        if (newSettings.theme && newSettings.theme !== currentSettings.theme) {
+          currentSettings.theme = newSettings.theme;
+          applyTheme(newSettings.theme);
+        }
+        if (newSettings.language && newSettings.language !== currentSettings.language) {
+          currentSettings.language = newSettings.language;
+          applyLanguage(newSettings.language);
+        }
+        currentSettings = { ...currentSettings, ...newSettings };
+        if (toggleNsfw && newSettings.autoRevealNsfw !== undefined) {
+          toggleNsfw.checked = newSettings.autoRevealNsfw !== false;
+        }
       }
     });
   }
@@ -431,8 +441,31 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Listen for Live Download Events from Background Script
+  // Instant Cross-Window Theme Sync via BroadcastChannel
+  const themeChannel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("x_vault_theme_sync") : null;
+  if (themeChannel) {
+    themeChannel.onmessage = (event) => {
+      if (event.data?.action === "THEME_CHANGED" && event.data?.theme) {
+        currentSettings.theme = event.data.theme;
+        applyTheme(event.data.theme);
+      }
+    };
+  }
+
+  // Listen for Live Events from Background / Settings
   chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.action === "THEME_CHANGED" && msg.theme) {
+      currentSettings.theme = msg.theme;
+      applyTheme(msg.theme);
+    }
+    if (msg.action === "SETTINGS_UPDATED" && msg.settings) {
+      currentSettings = { ...currentSettings, ...msg.settings };
+      applyTheme(currentSettings.theme || "dark");
+      applyLanguage(currentSettings.language || "id");
+      if (toggleNsfw && currentSettings.autoRevealNsfw !== undefined) {
+        toggleNsfw.checked = currentSettings.autoRevealNsfw !== false;
+      }
+    }
     if (msg.action === "DOWNLOAD_RECORDED" && msg.stats) {
       downloadStats = msg.stats;
       if (msg.lastItem) {
@@ -502,10 +535,32 @@ document.addEventListener("DOMContentLoaded", () => {
       const nextTheme = currentSettings.theme === "light" ? "dark" : "light";
       currentSettings.theme = nextTheme;
       applyTheme(nextTheme);
+
+      // 1. Instant sync to open tabs (settings.html) via BroadcastChannel
+      if (themeChannel) {
+        try {
+          themeChannel.postMessage({ action: "THEME_CHANGED", theme: nextTheme });
+        } catch (e) {}
+      }
+
+      // 2. Broadcast theme change immediately across all tabs and open views
+      try {
+        if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+          chrome.runtime.sendMessage({ action: "THEME_CHANGED", theme: nextTheme }, () => {
+            if (chrome.runtime.lastError) {} // Ignore if no other views open
+          });
+        }
+      } catch (e) {}
+
+      // 3. Save to storage
       if (chrome.storage && chrome.storage.local) {
-        chrome.storage.local.set({ settings: currentSettings }, () => {
-          showToast(nextTheme === "dark" ? t("toastThemeDark") : t("toastThemeLight"));
-          playRetroChime("coin");
+        chrome.storage.local.get("settings", (data) => {
+          const storedSettings = (data && data.settings) ? data.settings : {};
+          storedSettings.theme = nextTheme;
+          chrome.storage.local.set({ settings: storedSettings }, () => {
+            showToast(nextTheme === "dark" ? t("toastThemeDark") : t("toastThemeLight"));
+            playRetroChime("coin");
+          });
         });
       } else {
         showToast(nextTheme === "dark" ? t("toastThemeDark") : t("toastThemeLight"));
@@ -530,10 +585,19 @@ document.addEventListener("DOMContentLoaded", () => {
   if (toggleNsfw) {
     toggleNsfw.addEventListener("change", () => {
       currentSettings.autoRevealNsfw = toggleNsfw.checked;
-      chrome.storage.local.set({ settings: currentSettings }, () => {
+      if (chrome.storage && chrome.storage.local) {
+        chrome.storage.local.get("settings", (data) => {
+          const storedSettings = (data && data.settings) ? data.settings : {};
+          storedSettings.autoRevealNsfw = toggleNsfw.checked;
+          chrome.storage.local.set({ settings: storedSettings }, () => {
+            showToast(currentSettings.autoRevealNsfw ? t("toastNsfwOn") : t("toastNsfwOff"));
+            playRetroChime("coin");
+          });
+        });
+      } else {
         showToast(currentSettings.autoRevealNsfw ? t("toastNsfwOn") : t("toastNsfwOff"));
         playRetroChime("coin");
-      });
+      }
     });
   }
 

@@ -8,13 +8,18 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
   globalThis.browser = chrome;
 }
 
+const IS_DEV = false;
+function logDebug(...args) {
+  if (IS_DEV) console.debug("[X-Vault ServiceWorker]", ...args);
+}
+
 const DEFAULT_SETTINGS = {
   theme: "dark",
   language: "id",
   downloadAsMkv: false,
   notifyOnComplete: true,
   maxConcurrentDownloads: 6,
-  defaultQuality: "native",
+  defaultQuality: "ask",
   gifFormat: "ask",
   downloadThumbnail: false,
   askSaveLocation: false,
@@ -104,10 +109,17 @@ async function loadSessionState() {
 loadSessionState();
 
 // Initialize on install
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async (details) => {
   const existing = await chrome.storage.local.get(["settings", "downloadStats", "downloadHistory"]);
   if (!existing.settings) {
     await chrome.storage.local.set({ settings: DEFAULT_SETTINGS });
+  } else {
+    // Preserve existing settings and fill in any missing defaults
+    const merged = { ...DEFAULT_SETTINGS, ...existing.settings };
+    if (!existing.settings.defaultQuality) {
+      merged.defaultQuality = "ask";
+    }
+    await chrome.storage.local.set({ settings: merged });
   }
   if (!existing.downloadStats) {
     await chrome.storage.local.set({
@@ -119,6 +131,22 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
   await loadSessionState();
   setupContextMenus();
+
+  // Re-inject content script into open Twitter/X tabs so users NEVER have to manually refresh Twitter (F5)
+  if (chrome.scripting && chrome.tabs) {
+    try {
+      const tabs = await chrome.tabs.query({ url: ["*://*.x.com/*", "*://*.twitter.com/*"] });
+      for (const tab of tabs) {
+        if (!tab.id) continue;
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ["lame.min.js", "content.js"]
+          });
+        } catch (err) {}
+      }
+    } catch (e) {}
+  }
 });
 
 // Setup context menus (restricted only to Twitter/X)
@@ -800,6 +828,43 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
   const { action, payload } = req;
 
   (async () => {
+    if (action === "THEME_CHANGED") {
+      if (req.theme) {
+        chrome.storage.local.get("settings", (data) => {
+          const s = (data && data.settings) ? data.settings : {};
+          s.theme = req.theme;
+          chrome.storage.local.set({ settings: s });
+        });
+      }
+      chrome.tabs.query({}, (tabs) => {
+        (tabs || []).forEach((t) => {
+          if (t?.id) {
+            chrome.tabs.sendMessage(t.id, req).catch(() => {});
+          }
+        });
+      });
+      sendResponse({ success: true });
+      return;
+    }
+
+    if (action === "SETTINGS_UPDATED") {
+      if (req.settings) {
+        chrome.storage.local.get("settings", (data) => {
+          const s = { ...(data?.settings || {}), ...req.settings };
+          chrome.storage.local.set({ settings: s });
+        });
+      }
+      chrome.tabs.query({}, (tabs) => {
+        (tabs || []).forEach((t) => {
+          if (t?.id) {
+            chrome.tabs.sendMessage(t.id, req).catch(() => {});
+          }
+        });
+      });
+      sendResponse({ success: true });
+      return;
+    }
+
     if (action === "GET_SESSION_STATE") {
       const tabId = payload?.tabId;
       const media = tabId ? (mediaStore.get(tabId) || []) : [];

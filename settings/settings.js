@@ -39,9 +39,9 @@ document.addEventListener("DOMContentLoaded", () => {
       availableTagsLabel: "Pilihan Tag (Klik untuk Menyalakan / Mematikan):",
       patternWarning: "Peringatan: Pola tidak menyertakan penanda unik (Tweet ID, Serial, atau Timestamp). Berkas yang diunduh berisiko saling menimpa!",
       themeTitle: "Tema Tampilan",
-      themeDesc: "Pilih mode tampilan antarmuka antara tema gelap (Cyber Dark) yang nyaman di mata atau tema terang (Clean Light).",
-      themeDark: "Gelap (Dark)",
-      themeLight: "Terang (Light)",
+      themeDesc: "Pilih mode tampilan antarmuka antara tema gelap yang nyaman di mata atau tema terang.",
+      themeDark: "Mode Gelap",
+      themeLight: "Mode Terang",
       langTitle: "Bahasa Antarmuka",
       langDesc: "Pilih bahasa tampilan untuk ekstensi, popup, tombol di linimasa, dan notifikasi.",
       backupSettingsTitle: "Cadangkan & Impor Pengaturan",
@@ -362,7 +362,7 @@ document.addEventListener("DOMContentLoaded", () => {
     autoRevealNsfw: true,
     downloadThumbnail: false,
     gifFormat: "ask",
-    defaultQuality: "native",
+    defaultQuality: "ask",
     inTweetBtn: true,
     mediaCornerBadges: true,
     badgeMediaTypes: ["video", "gif", "photo"],
@@ -420,6 +420,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const badgeMediaChoices = document.getElementById("badgeMediaChoices");
   const badgeMediaTypesRow = document.getElementById("badgeMediaTypesRow");
   const toggleHeaderDlAll = document.getElementById("toggleHeaderDlAll");
+  const toggleKeyboardShortcut = document.getElementById("toggleKeyboardShortcut");
 
   // DOM Elements - History Tab
   const metricTotalDrops = document.getElementById("metricTotalDrops");
@@ -465,6 +466,17 @@ document.addEventListener("DOMContentLoaded", () => {
         p.classList.toggle("active", p.getAttribute("data-value") === selectedTheme);
       });
     }
+  }
+
+  // Instant Cross-Window Theme Sync via BroadcastChannel
+  const themeChannel = typeof BroadcastChannel !== "undefined" ? new BroadcastChannel("x_vault_theme_sync") : null;
+  if (themeChannel) {
+    themeChannel.onmessage = (event) => {
+      if (event.data?.action === "THEME_CHANGED" && event.data?.theme) {
+        currentSettings.theme = event.data.theme;
+        applyTheme(event.data.theme);
+      }
+    };
   }
 
   // Apply Language to all UI elements and placeholders
@@ -519,10 +531,43 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function saveCurrentSettings() {
+    if (typeof chrome !== "undefined" && chrome.runtime && !chrome.runtime.id) {
+      window.location.reload();
+      return;
+    }
+
     if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
-      chrome.storage.local.set({ settings: currentSettings }, () => {
-        showToast(t("toastSaved"));
+      chrome.storage.local.get("settings", (data) => {
+        const merged = { ...(data?.settings || {}), ...currentSettings };
+        chrome.storage.local.set({ settings: merged }, () => {
+          if (chrome.runtime?.lastError) {
+            console.error("X-Vault: Failed saving settings:", chrome.runtime.lastError);
+            return;
+          }
+          showToast(t("toastSaved"));
+        });
       });
+
+      // Broadcast settings update to background and all open Twitter/X tabs in real time
+      try {
+        if (chrome.runtime && chrome.runtime.sendMessage) {
+          chrome.runtime.sendMessage({ action: "SETTINGS_UPDATED", settings: currentSettings }, () => {
+            if (chrome.runtime.lastError) {}
+          });
+        }
+      } catch (e) {}
+
+      try {
+        if (chrome.tabs && chrome.tabs.query) {
+          chrome.tabs.query({}, (tabs) => {
+            (tabs || []).forEach((t) => {
+              if (t?.id) {
+                chrome.tabs.sendMessage(t.id, { action: "SETTINGS_UPDATED", settings: currentSettings }).catch(() => {});
+              }
+            });
+          });
+        }
+      } catch (e) {}
     } else {
       showToast(t("toastSaved"));
     }
@@ -571,7 +616,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!activeTagsList) return;
 
     // Deduplicate active tags and ensure valid array
-    if (!Array.isArray(currentSettings.activePatternTags)) {
+    if (!Array.isArray(currentSettings.activePatternTags) || currentSettings.activePatternTags.length === 0) {
       currentSettings.activePatternTags = ["{account}", "{tweet_id}", "{serial}"];
     } else {
       // Cleanse duplicate tokens while preserving current order
@@ -579,7 +624,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     if (currentSettings.activePatternTags.length === 0) {
-      currentSettings.activePatternTags = ["{tweet_id}"];
+      currentSettings.activePatternTags = ["{account}", "{tweet_id}", "{serial}"];
     }
 
     const tags = currentSettings.activePatternTags;
@@ -1449,6 +1494,22 @@ document.addEventListener("DOMContentLoaded", () => {
       currentSettings.theme = chosenTheme;
       applyTheme(chosenTheme);
       saveCurrentSettings();
+
+      // 1. Instant sync via BroadcastChannel to popup
+      if (themeChannel) {
+        try {
+          themeChannel.postMessage({ action: "THEME_CHANGED", theme: chosenTheme });
+        } catch (e) {}
+      }
+
+      // 2. Broadcast theme change immediately across all tabs and open views
+      try {
+        if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.sendMessage) {
+          chrome.runtime.sendMessage({ action: "THEME_CHANGED", theme: chosenTheme }, () => {
+            if (chrome.runtime.lastError) {}
+          });
+        }
+      } catch (e) {}
     });
   }
 
@@ -1473,6 +1534,11 @@ document.addEventListener("DOMContentLoaded", () => {
         currentSettings.activePatternTags = ["{account}", "{tweet_id}", "{serial}"];
 
         applyTheme("dark");
+        if (themeChannel) {
+          try {
+            themeChannel.postMessage({ action: "THEME_CHANGED", theme: "dark" });
+          } catch (e) {}
+        }
         if (toggleAskSave) toggleAskSave.checked = false;
         if (toggleCreateSubDir) {
           toggleCreateSubDir.checked = true;
@@ -1600,7 +1666,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!pill) return;
       videoQualityChoices.querySelectorAll(".choice-pill").forEach(p => p.classList.remove("active"));
       pill.classList.add("active");
-      const chosenQuality = pill.getAttribute("data-value") || "native";
+      const chosenQuality = pill.getAttribute("data-value") || "ask";
       currentSettings.defaultQuality = chosenQuality;
       if (selectDefaultQuality) selectDefaultQuality.value = chosenQuality;
       saveCurrentSettings();
@@ -1717,6 +1783,9 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.storage.local.get(["settings", "downloadStats", "downloadHistory"], (data) => {
       if (data?.settings) {
         currentSettings = { ...currentSettings, ...data.settings };
+        if (!Array.isArray(currentSettings.activePatternTags) || currentSettings.activePatternTags.length === 0) {
+          currentSettings.activePatternTags = ["{account}", "{tweet_id}", "{serial}"];
+        }
       }
       if (data?.downloadStats) {
         downloadStats = { ...downloadStats, ...data.downloadStats };
@@ -1760,7 +1829,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (toggleFeaturesNsfw) toggleFeaturesNsfw.checked = settings.autoRevealNsfw !== false;
     if (toggleDownloadThumbnail) toggleDownloadThumbnail.checked = Boolean(settings.downloadThumbnail);
-    if (selectDefaultQuality) selectDefaultQuality.value = settings.defaultQuality || "native";
+    if (selectDefaultQuality) selectDefaultQuality.value = settings.defaultQuality || "ask";
     if (toggleInTweetBtn) toggleInTweetBtn.checked = settings.inTweetBtn !== false;
     if (toggleMediaBadges) {
       toggleMediaBadges.checked = settings.mediaCornerBadges !== false;
@@ -1768,6 +1837,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     updateBadgeMediaChoicesUI();
     if (toggleHeaderDlAll) toggleHeaderDlAll.checked = settings.headerDlAll !== false;
+    if (toggleKeyboardShortcut) toggleKeyboardShortcut.checked = settings.keyboardShortcut !== false;
     if (toggleHistoryLogging) toggleHistoryLogging.checked = settings.historyLogging !== false;
 
     // Theme choices active pill
@@ -1788,7 +1858,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Video Quality choice active pill
     if (videoQualityChoices) {
-      const targetQ = settings.defaultQuality || "native";
+      const targetQ = settings.defaultQuality || "ask";
       videoQualityChoices.querySelectorAll(".choice-pill").forEach(p => {
         p.classList.toggle("active", p.getAttribute("data-value") === targetQ);
       });
@@ -1804,12 +1874,9 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === "local") {
         if (changes.settings?.newValue) {
-          currentSettings = { ...currentSettings, ...changes.settings.newValue };
-          applyTheme(currentSettings.theme || "dark");
-          applyLanguage(currentSettings.language || "id");
-          if (toggleFeaturesNsfw && changes.settings.newValue.autoRevealNsfw !== undefined) {
-            toggleFeaturesNsfw.checked = changes.settings.newValue.autoRevealNsfw !== false;
-          }
+          const newSettings = changes.settings.newValue;
+          currentSettings = { ...currentSettings, ...newSettings };
+          populateSettingsUI(currentSettings);
         }
         if (changes.downloadStats?.newValue) {
           downloadStats = { ...downloadStats, ...changes.downloadStats.newValue };
@@ -1824,9 +1891,17 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  // Listen for Real-Time Background Download Events
+  // Listen for Real-Time Events (Theme sync & Background Download Events)
   if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener((msg) => {
+      if (msg.action === "THEME_CHANGED" && msg.theme) {
+        currentSettings.theme = msg.theme;
+        applyTheme(msg.theme);
+      }
+      if (msg.action === "SETTINGS_UPDATED" && msg.settings) {
+        currentSettings = { ...currentSettings, ...msg.settings };
+        populateSettingsUI(currentSettings);
+      }
       if (msg.action === "DOWNLOAD_RECORDED") {
         if (msg.stats) downloadStats = msg.stats;
         if (msg.lastItem) {

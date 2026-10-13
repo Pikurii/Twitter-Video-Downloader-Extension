@@ -1,4 +1,4 @@
-// content.js - X Video Downloader Content Script (Twitter / X Dedicated)
+// content.js - X-Vault: Twitter / X Media Downloader Content Script
 // Dibuat oleh Pikuri (https://github.com/Pikurii)
 
 // Cross-browser WebExtensions API compatibility (Chrome, Edge, Opera, Opera GX, Brave, Firefox)
@@ -13,6 +13,19 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
   if (!isTwitter && !window.location.href.includes("test_page.html")) {
     // Strictly do not run on YouTube, Facebook, or any non-target websites
     return;
+  }
+
+  // Central developer debug flag
+  const IS_DEV = false;
+  function logDebug(...args) {
+    if (IS_DEV) console.debug("[X-Vault]", ...args);
+  }
+
+  // Cleanup any old orphaned instance from a prior extension reload
+  if (typeof window.__xVaultCleanup === "function") {
+    try { window.__xVaultCleanup(); } catch (e) {
+      logDebug("Cleanup error:", e);
+    }
   }
 
   // Safe messaging wrapper to protect against "Extension context invalidated" errors
@@ -297,74 +310,78 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
     });
   } catch (e) {}
 
+  function applyLiveSettings(newVal) {
+    if (!newVal) return;
+    contentSettings = { ...contentSettings, ...newVal };
+    if (newVal.language) {
+      currentLang = newVal.language;
+      document.querySelectorAll(".x-tweet-dl-btn").forEach((btn) => {
+        btn.title = currentLang === "en" ? "Download This Video (X-Vault)" : "Unduh Video Ini (X-Vault)";
+      });
+      document.querySelectorAll(".x-badge-photo").forEach(b => {
+        b.title = currentLang === "en" ? "Download High-Res Original Photo" : "Unduh Foto Asli HD";
+      });
+      document.querySelectorAll(".x-badge-gif").forEach(b => {
+        b.title = currentLang === "en" ? "Download Animated GIF" : "Unduh Animasi GIF";
+      });
+      document.querySelectorAll(".x-badge-video").forEach(b => {
+        b.title = currentLang === "en" ? "Download HD Video (MP4)" : "Unduh Video HD (MP4)";
+      });
+    }
+    if (newVal.theme) {
+      const isLight = newVal.theme === "light";
+      if (activeGifModal) {
+        activeGifModal.classList.toggle("x-theme-light", isLight);
+        activeGifModal.classList.toggle("x-theme-dark", !isLight);
+      }
+      if (activeQualityModal) {
+        activeQualityModal.classList.toggle("x-theme-light", isLight);
+        activeQualityModal.classList.toggle("x-theme-dark", !isLight);
+      }
+    }
+    if (newVal.inTweetBtn !== undefined) {
+      document.querySelectorAll(".x-tweet-dl-wrapper, .x-tweet-dl-btn").forEach(el => {
+        el.style.display = newVal.inTweetBtn ? "" : "none";
+      });
+    }
+    if (newVal.headerDlAll !== undefined) {
+      document.querySelectorAll(".x-tweet-header-dl-all-wrapper, .x-quote-dl-all-wrapper").forEach(el => {
+        el.style.display = newVal.headerDlAll ? "" : "none";
+      });
+    }
+    if (newVal.mediaCornerBadges !== undefined || newVal.badgeMediaTypes !== undefined) {
+      const badgesEnabled = contentSettings.mediaCornerBadges !== false;
+      const allowedTypes = Array.isArray(contentSettings.badgeMediaTypes) ? contentSettings.badgeMediaTypes : ["video", "gif", "photo"];
+      document.querySelectorAll(".x-media-corner-badge").forEach(badge => {
+        const hasVideo = badge.querySelector(".x-badge-video");
+        const hasGif = badge.querySelector(".x-badge-gif");
+        const hasPhoto = badge.querySelector(".x-badge-photo");
+        let show = badgesEnabled;
+        if (show) {
+          if (hasVideo && !allowedTypes.includes("video")) show = false;
+          if (hasGif && !allowedTypes.includes("gif")) show = false;
+          if (hasPhoto && !allowedTypes.includes("photo")) show = false;
+        }
+        badge.style.display = show ? "" : "none";
+      });
+    }
+    if (newVal.inTweetBtn !== undefined || newVal.mediaCornerBadges !== undefined) {
+      const hideLightbox = contentSettings.inTweetBtn === false && contentSettings.mediaCornerBadges === false;
+      document.querySelectorAll(".x-lightbox-toolbar").forEach(el => {
+        el.style.display = hideLightbox ? "none" : "inline-flex";
+      });
+    }
+    if (contentSettings.autoRevealNsfw) {
+      try {
+        autoRevealSensitiveMedia();
+      } catch (e) {}
+    }
+  }
+
   if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.onChanged) {
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === "local" && changes.settings?.newValue) {
-        const newVal = changes.settings.newValue;
-        if (newVal.language) {
-          currentLang = newVal.language;
-          document.querySelectorAll(".x-tweet-dl-btn").forEach((btn) => {
-            btn.title = currentLang === "en" ? "Download This Video (X Downloader)" : "Unduh Video Ini (X Downloader)";
-          });
-          document.querySelectorAll(".x-badge-photo").forEach(b => {
-            b.title = currentLang === "en" ? "Download High-Res Original Photo" : "Unduh Foto Asli HD";
-          });
-          document.querySelectorAll(".x-badge-gif").forEach(b => {
-            b.title = currentLang === "en" ? "Download Animated GIF" : "Unduh Animasi GIF";
-          });
-          document.querySelectorAll(".x-badge-video").forEach(b => {
-            b.title = currentLang === "en" ? "Download HD Video (MP4)" : "Unduh Video HD (MP4)";
-          });
-        }
-        contentSettings = { ...contentSettings, ...newVal };
-        if (newVal.theme) {
-          const isLight = newVal.theme === "light";
-          if (activeGifModal) {
-            activeGifModal.classList.toggle("x-theme-light", isLight);
-            activeGifModal.classList.toggle("x-theme-dark", !isLight);
-          }
-          if (activeQualityModal) {
-            activeQualityModal.classList.toggle("x-theme-light", isLight);
-            activeQualityModal.classList.toggle("x-theme-dark", !isLight);
-          }
-        }
-        if (newVal.inTweetBtn !== undefined) {
-          document.querySelectorAll(".x-tweet-dl-wrapper, .x-tweet-dl-btn").forEach(el => {
-            el.style.display = newVal.inTweetBtn ? "" : "none";
-          });
-        }
-        if (newVal.headerDlAll !== undefined) {
-          document.querySelectorAll(".x-tweet-header-dl-all-wrapper, .x-quote-dl-all-wrapper").forEach(el => {
-            el.style.display = newVal.headerDlAll ? "" : "none";
-          });
-        }
-        if (newVal.mediaCornerBadges !== undefined || newVal.badgeMediaTypes !== undefined) {
-          const badgesEnabled = contentSettings.mediaCornerBadges !== false;
-          const allowedTypes = Array.isArray(contentSettings.badgeMediaTypes) ? contentSettings.badgeMediaTypes : ["video", "gif", "photo"];
-          document.querySelectorAll(".x-media-corner-badge").forEach(badge => {
-            const hasVideo = badge.querySelector(".x-badge-video");
-            const hasGif = badge.querySelector(".x-badge-gif");
-            const hasPhoto = badge.querySelector(".x-badge-photo");
-            let show = badgesEnabled;
-            if (show) {
-              if (hasVideo && !allowedTypes.includes("video")) show = false;
-              if (hasGif && !allowedTypes.includes("gif")) show = false;
-              if (hasPhoto && !allowedTypes.includes("photo")) show = false;
-            }
-            badge.style.display = show ? "" : "none";
-          });
-        }
-        if (newVal.inTweetBtn !== undefined || newVal.mediaCornerBadges !== undefined) {
-          const hideLightbox = contentSettings.inTweetBtn === false && contentSettings.mediaCornerBadges === false;
-          document.querySelectorAll(".x-lightbox-toolbar").forEach(el => {
-            el.style.display = hideLightbox ? "none" : "inline-flex";
-          });
-        }
-        if (contentSettings.autoRevealNsfw) {
-          try {
-            autoRevealSensitiveMedia();
-          } catch (e) {}
-        }
+        applyLiveSettings(changes.settings.newValue);
       }
     });
   }
@@ -738,17 +755,18 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
       }
 
       const palCount = Math.min(sortedColors.length, 256) || 1;
-      const lookupCache = new Map();
+      const lookupCache = new Int16Array(32768).fill(-1);
 
       for (let pix = 0; pix < pixelCount; pix++) {
         const offset = pix * 4;
         const r = rgbaData[offset];
         const g = rgbaData[offset + 1];
         const b = rgbaData[offset + 2];
-        const rgbKey = (r << 16) | (g << 8) | b;
+        const rgbKey = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
 
-        if (lookupCache.has(rgbKey)) {
-          indexedPixels[pix] = lookupCache.get(rgbKey);
+        let cached = lookupCache[rgbKey];
+        if (cached !== -1) {
+          indexedPixels[pix] = cached;
         } else {
           let bestIdx = 0;
           let bestDist = Infinity;
@@ -763,7 +781,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
               if (dist === 0) break;
             }
           }
-          lookupCache.set(rgbKey, bestIdx);
+          lookupCache[rgbKey] = bestIdx;
           indexedPixels[pix] = bestIdx;
         }
       }
@@ -938,6 +956,9 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
       frameIdx++;
       const pct = Math.min(95, 15 + Math.round((frameIdx / totalFrames) * 80));
       if (onProgress) onProgress(pct, `${pct}%`);
+
+      // Yield back to browser event loop to keep UI thread 100% fluid & responsive
+      await new Promise(resolve => setTimeout(resolve, 0));
     }
 
     if (onProgress) onProgress(98, "98%");
@@ -979,11 +1000,13 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
       @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Silkscreen:wght@400;700&family=Space+Mono:wght@400;700&display=swap');
 
       @keyframes xVaultDropdownDown {
-        0% { opacity: 0; transform: translateY(-8px) scale(0.97); }
+        0% { opacity: 0; transform: translateY(-10px) scale(0.95); }
+        60% { opacity: 1; transform: translateY(2px) scale(1.01); }
         100% { opacity: 1; transform: translateY(0) scale(1); }
       }
       @keyframes xVaultDropdownUp {
-        0% { opacity: 0; transform: translateY(8px) scale(0.97); }
+        0% { opacity: 0; transform: translateY(10px) scale(0.95); }
+        60% { opacity: 1; transform: translateY(-2px) scale(1.01); }
         100% { opacity: 1; transform: translateY(0) scale(1); }
       }
 
@@ -992,8 +1015,8 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
         z-index: 2147483647;
         width: 295px;
         background: rgba(255, 255, 255, 0.98);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
+        backdrop-filter: blur(20px) saturate(180%);
+        -webkit-backdrop-filter: blur(20px) saturate(180%);
         border: 1px solid #cbd5e1;
         border-radius: 14px;
         box-shadow: 0 16px 38px -8px rgba(15, 23, 42, 0.22), 0 0 0 1px rgba(226, 232, 240, 0.9);
@@ -1004,11 +1027,11 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
         user-select: none;
       }
       .x-gif-picker-popup.open-down {
-        animation: xVaultDropdownDown 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        animation: xVaultDropdownDown 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
         transform-origin: top right;
       }
       .x-gif-picker-popup.open-up {
-        animation: xVaultDropdownUp 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        animation: xVaultDropdownUp 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
         transform-origin: bottom right;
       }
 
@@ -1039,13 +1062,13 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
         margin-bottom: 4px;
         cursor: pointer;
         box-sizing: border-box;
-        transition: all 0.14s cubic-bezier(0.16, 1, 0.3, 1);
+        transition: all 0.16s cubic-bezier(0.16, 1, 0.3, 1);
       }
       .x-gif-picker-card:hover {
         background: #f0f9ff;
         border-color: #38bdf8;
-        box-shadow: 0 4px 12px rgba(2, 132, 199, 0.08);
-        transform: translateY(-1px);
+        box-shadow: 0 6px 16px rgba(2, 132, 199, 0.12);
+        transform: translateY(-2px);
       }
       .x-gif-picker-card:active {
         background: #e0f2fe;
@@ -3753,7 +3776,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
         <span class="x-tweet-dl-count" style="font-size: 13px; font-weight: 400; line-height: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: inherit; transition: color 0.2s; pointer-events: none;">${totalMedia}</span>
       `;
     } else {
-      btn.title = currentLang === "en" ? "Download Media (X Downloader)" : "Unduh Media (X Downloader)";
+      btn.title = currentLang === "en" ? "Download Media (X-Vault)" : "Unduh Media (X-Vault)";
       btn.innerHTML = iconSvg;
     }
   }
@@ -3761,7 +3784,14 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
   function injectTwitterDownloadButtons() {
     if (!window.location.hostname.includes("x.com") && !window.location.hostname.includes("twitter.com")) return;
 
-    const tweetArticles = document.querySelectorAll('article[data-testid="tweet"]');
+    let tweetArticles = Array.from(document.querySelectorAll('article[data-testid="tweet"], article[role="article"]'));
+    if (tweetArticles.length === 0) {
+      // Heuristic Fallback: Any article or cell containing /status/ links or tweet action bars
+      tweetArticles = Array.from(document.querySelectorAll('article, div[data-testid="cellInnerDiv"] article, div[data-testid="cellInnerDiv"]')).filter(art => {
+        return art.querySelector('a[href*="/status/"], [role="group"]');
+      });
+    }
+
     tweetArticles.forEach((article) => {
       try {
         // 1. Gather outer tweet ID from the primary <time> timestamp in the header
@@ -3796,7 +3826,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
 
         // 3. Detect videos: players, videos, video cards, amplify cards, and unplayed video thumbnails
         const allVideos = Array.from(article.querySelectorAll("video"));
-        const allPlayers = Array.from(article.querySelectorAll('div[data-testid="videoPlayer"], div[data-testid="videoComponent"]'));
+        const allPlayers = Array.from(article.querySelectorAll('div[data-testid="videoPlayer"], div[data-testid="videoComponent"], div[data-testid*="video"], div[aria-label="Embedded video"]'));
 
         // Also detect video preview cards (with video_thumb image or duration badges like "0:27")
         const videoCards = Array.from(article.querySelectorAll('img[src*="video_thumb"], img[src*="amplify_video_thumb"], img[src*="ext_tw_video_thumb"]')).map(img => {
@@ -3863,7 +3893,7 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
           return img.src.includes("pbs.twimg.com/media/") || img.src.includes("pbs.twimg.com");
         };
 
-        const photoContainers = Array.from(article.querySelectorAll('div[data-testid="tweetPhoto"]')).filter(isRealPhotoWrap);
+        const photoContainers = Array.from(article.querySelectorAll('div[data-testid="tweetPhoto"], div[aria-label*="Image" i], div[data-testid*="photo"]')).filter(isRealPhotoWrap);
         const outerPhotoContainers = photoContainers.filter(p => !isElementInQuote(p));
         const quotedPhotoContainers = photoContainers.filter(p => isElementInQuote(p));
         const hasOuterPhotos = outerPhotoContainers.length > 0;
@@ -4884,6 +4914,11 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
     }
   });
 
+  window.__xVaultCleanup = function () {
+    try { twObserver.disconnect(); } catch (e) {}
+    document.querySelectorAll(".x-tweet-dl-wrapper, .x-media-corner-badge, .x-tweet-header-dl-all-wrapper, .x-quote-dl-all-wrapper, .x-lightbox-toolbar").forEach(el => el.remove());
+  };
+
   function startObserverAndScan() {
     try {
       ensureMediaOverlayStyles();
@@ -4970,6 +5005,11 @@ if (typeof chrome === "undefined" && typeof browser !== "undefined") {
         }
       }
       sendResponse({ received: true });
+      return;
+    }
+    if (req.action === "SETTINGS_UPDATED" && req.settings) {
+      applyLiveSettings(req.settings);
+      sendResponse({ success: true });
       return;
     }
     if (req.action === "SCAN_PAGE") {

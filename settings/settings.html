@@ -29,7 +29,7 @@
       </div>
 
       <nav class="sidebar-nav">
-        <button class="nav-tab-btn active" data-tab="general" id="tabBtnGeneral">
+        <button class="nav-tab-btn active" data-tab="general" id="tabBtnGeneral" title="General">
           <span class="nav-icon">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="3"/>
@@ -38,7 +38,7 @@
           </span>
           <span class="nav-label" data-i18n="navGeneral">General</span>
         </button>
-        <button class="nav-tab-btn" data-tab="features" id="tabBtnFeatures">
+        <button class="nav-tab-btn" data-tab="features" id="tabBtnFeatures" title="Features">
           <span class="nav-icon">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="4" y1="21" x2="4" y2="14"/>
@@ -54,7 +54,7 @@
           </span>
           <span class="nav-label" data-i18n="navFeatures">Features</span>
         </button>
-        <button class="nav-tab-btn" data-tab="history" id="tabBtnHistory">
+        <button class="nav-tab-btn" data-tab="history" id="tabBtnHistory" title="History">
           <span class="nav-icon">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="10"/>
@@ -64,7 +64,7 @@
           <span class="nav-label" data-i18n="navHistory">History</span>
           <span class="nav-badge" id="historyCounterBadge">0</span>
         </button>
-        <button class="nav-tab-btn" data-tab="about" id="tabBtnAbout">
+        <button class="nav-tab-btn" data-tab="about" id="tabBtnAbout" title="About & Rank">
           <span class="nav-icon">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="8" r="7"/>
@@ -208,11 +208,11 @@
           <div class="setting-item-card">
             <div class="item-text-info">
               <h3 class="item-title" data-i18n="themeTitle">Tema Tampilan</h3>
-              <p class="item-desc" data-i18n="themeDesc">Pilih mode tampilan antarmuka antara tema gelap (Cyber Dark) yang nyaman di mata atau tema terang (Clean Light).</p>
+              <p class="item-desc" data-i18n="themeDesc">Pilih mode tampilan antarmuka antara tema gelap yang nyaman di mata atau tema terang.</p>
             </div>
             <div class="choice-pills-row" id="themeChoices">
-              <button type="button" class="choice-pill active" data-value="dark" data-i18n="themeDark">Gelap (Dark)</button>
-              <button type="button" class="choice-pill" data-value="light" data-i18n="themeLight">Terang (Light)</button>
+              <button type="button" class="choice-pill active" data-value="dark" data-i18n="themeDark">Mode Gelap</button>
+              <button type="button" class="choice-pill" data-value="light" data-i18n="themeLight">Mode Terang</button>
             </div>
           </div>
 
@@ -375,6 +375,18 @@
             </div>
             <label class="vault-switch">
               <input type="checkbox" id="toggleHeaderDlAll" checked>
+              <span class="vault-slider"></span>
+            </label>
+          </div>
+
+          <!-- Keyboard Shortcut 'D' for Quick Download -->
+          <div class="setting-item-card">
+            <div class="item-text-info">
+              <h3 class="item-title" data-i18n="shortcutTitle">Pintasan Papan Ketik (Keyboard shortcut)</h3>
+              <p class="item-desc" data-i18n="shortcutDesc">Tekan huruf <code>D</code> pada keyboard saat kursor berada di tweet untuk langsung memulai unduhan media.</p>
+            </div>
+            <label class="vault-switch">
+              <input type="checkbox" id="toggleKeyboardShortcut" checked>
               <span class="vault-slider"></span>
             </label>
           </div>
